@@ -29,529 +29,127 @@
     --shadow: 0 2px 12px rgba(61,46,35,0.08);
     --shadow-hover: 0 8px 32px rgba(61,46,35,0.14);
   }
-
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Jost', sans-serif; background: var(--beige); color: var(--text-primary); min-height: 100vh; overflow-x: hidden; }
 
-  body {
-    font-family: 'Jost', sans-serif;
-    background: var(--beige);
-    color: var(--text-primary);
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-
-  /* ── PIN SCREEN ── */
-  #pin-screen {
-    position: fixed; inset: 0;
-    background: var(--brown-dark);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 1000;
-    flex-direction: column;
-    gap: 2rem;
-  }
+  /* PIN */
+  #pin-screen { position: fixed; inset: 0; background: var(--brown-dark); display: flex; align-items: center; justify-content: center; z-index: 1000; flex-direction: column; gap: 2rem; }
   #pin-screen.hidden { display: none; }
-
-  .pin-logo {
-    text-align: center;
-  }
-  .pin-logo .brand {
-    font-size: 2rem;
-    font-weight: 300;
-    color: var(--beige);
-    letter-spacing: 0.3em;
-    text-transform: uppercase;
-  }
-  .pin-logo .sub {
-    font-size: 0.7rem;
-    color: var(--gold);
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    margin-top: 0.25rem;
-    font-family: 'DM Mono', monospace;
-  }
-
-  .pin-box {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(201,169,110,0.2);
-    border-radius: 16px;
-    padding: 2.5rem 3rem;
-    width: 320px;
-    text-align: center;
-  }
-
-  .pin-label {
-    font-size: 0.75rem;
-    color: var(--gold);
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    margin-bottom: 1.5rem;
-    font-family: 'DM Mono', monospace;
-  }
-
-  .pin-dots {
-    display: flex;
-    gap: 1rem;
-    justify-content: center;
-    margin-bottom: 2rem;
-  }
-  .pin-dot {
-    width: 14px; height: 14px;
-    border-radius: 50%;
-    border: 2px solid rgba(201,169,110,0.4);
-    background: transparent;
-    transition: all 0.2s;
-  }
-  .pin-dot.filled {
-    background: var(--gold);
-    border-color: var(--gold);
-  }
-
-  .pin-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.75rem;
-  }
-  .pin-btn {
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 10px;
-    color: var(--beige);
-    font-family: 'Jost', sans-serif;
-    font-size: 1.2rem;
-    font-weight: 400;
-    padding: 1rem;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
+  .pin-logo { text-align: center; }
+  .pin-logo .brand { font-size: 2rem; font-weight: 300; color: var(--beige); letter-spacing: 0.3em; text-transform: uppercase; }
+  .pin-logo .sub { font-size: 0.7rem; color: var(--gold); letter-spacing: 0.2em; text-transform: uppercase; margin-top: 0.25rem; font-family: 'DM Mono', monospace; }
+  .pin-box { background: rgba(255,255,255,0.05); border: 1px solid rgba(201,169,110,0.2); border-radius: 16px; padding: 2.5rem 3rem; width: 320px; text-align: center; }
+  .pin-label { font-size: 0.75rem; color: var(--gold); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 1.5rem; font-family: 'DM Mono', monospace; }
+  .pin-dots { display: flex; gap: 1rem; justify-content: center; margin-bottom: 2rem; }
+  .pin-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(201,169,110,0.4); background: transparent; transition: all 0.2s; }
+  .pin-dot.filled { background: var(--gold); border-color: var(--gold); }
+  .pin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+  .pin-btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: var(--beige); font-family: 'Jost', sans-serif; font-size: 1.2rem; font-weight: 400; padding: 1rem; cursor: pointer; transition: all 0.15s; }
   .pin-btn:hover { background: rgba(201,169,110,0.15); border-color: rgba(201,169,110,0.4); }
   .pin-btn:active { transform: scale(0.95); }
   .pin-btn.delete { font-size: 1rem; color: var(--text-muted); }
   .pin-btn.zero { grid-column: 2; }
+  .pin-error { color: #e74c3c; font-size: 0.75rem; margin-top: 1rem; font-family: 'DM Mono', monospace; min-height: 1rem; }
 
-  .pin-error {
-    color: #e74c3c;
-    font-size: 0.75rem;
-    margin-top: 1rem;
-    font-family: 'DM Mono', monospace;
-    min-height: 1rem;
-  }
-
-  /* ── HEADER ── */
-  header {
-    background: var(--brown);
-    padding: 0 2rem;
-    height: 60px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: sticky; top: 0; z-index: 100;
-    box-shadow: 0 2px 16px rgba(0,0,0,0.2);
-  }
-
-  .header-brand {
-    font-size: 1rem;
-    font-weight: 300;
-    color: var(--beige);
-    letter-spacing: 0.25em;
-    text-transform: uppercase;
-  }
-  .header-brand span {
-    color: var(--gold);
-    font-weight: 500;
-  }
-
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 1.5rem;
-  }
-
-  .header-role {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.65rem;
-    color: var(--gold);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    background: rgba(201,169,110,0.15);
-    padding: 0.3rem 0.8rem;
-    border-radius: 20px;
-    border: 1px solid rgba(201,169,110,0.3);
-  }
-
-  .btn-refresh {
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.15);
-    color: var(--beige);
-    padding: 0.4rem 1rem;
-    border-radius: 8px;
-    font-family: 'Jost', sans-serif;
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex; align-items: center; gap: 0.4rem;
-  }
+  /* HEADER */
+  header { background: var(--brown); padding: 0 2rem; height: 60px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 16px rgba(0,0,0,0.2); }
+  .header-brand { font-size: 1rem; font-weight: 300; color: var(--beige); letter-spacing: 0.25em; text-transform: uppercase; }
+  .header-brand span { color: var(--gold); font-weight: 500; }
+  .header-right { display: flex; align-items: center; gap: 1.5rem; }
+  .header-role { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--gold); letter-spacing: 0.1em; text-transform: uppercase; background: rgba(201,169,110,0.15); padding: 0.3rem 0.8rem; border-radius: 20px; border: 1px solid rgba(201,169,110,0.3); }
+  .btn-refresh { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: var(--beige); padding: 0.4rem 1rem; border-radius: 8px; font-family: 'Jost', sans-serif; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 0.4rem; }
   .btn-refresh:hover { background: rgba(255,255,255,0.14); }
   .btn-refresh.spinning .refresh-icon { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  .btn-logout {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 0.75rem;
-    font-family: 'DM Mono', monospace;
-    letter-spacing: 0.05em;
-    transition: color 0.2s;
-  }
+  .btn-logout { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; font-family: 'DM Mono', monospace; letter-spacing: 0.05em; transition: color 0.2s; }
   .btn-logout:hover { color: var(--beige); }
 
-  /* ── STATS BAR ── */
-  .stats-bar {
-    background: var(--brown-dark);
-    padding: 1rem 2rem;
-    display: flex;
-    gap: 2rem;
-    overflow-x: auto;
-  }
-
-  .stat-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    white-space: nowrap;
-  }
-  .stat-label {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.6rem;
-    color: var(--text-muted);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
-  .stat-value {
-    font-size: 1.2rem;
-    font-weight: 500;
-    color: var(--beige);
-  }
+  /* STATS */
+  .stats-bar { background: var(--brown-dark); padding: 1rem 2rem; display: flex; gap: 2rem; overflow-x: auto; }
+  .stat-item { display: flex; flex-direction: column; gap: 0.2rem; white-space: nowrap; }
+  .stat-label { font-family: 'DM Mono', monospace; font-size: 0.6rem; color: var(--text-muted); letter-spacing: 0.1em; text-transform: uppercase; }
+  .stat-value { font-size: 1.2rem; font-weight: 500; color: var(--beige); }
   .stat-value.yellow { color: var(--stage-yellow); }
-  .stat-value.green { color: var(--stage-green); }
-  .stat-value.blue { color: var(--stage-blue); }
-  .stat-value.teal { color: var(--stage-teal); }
+  .stat-value.green  { color: var(--stage-green); }
+  .stat-value.blue   { color: var(--stage-blue); }
+  .stat-value.teal   { color: var(--stage-teal); }
+  .stat-divider { width: 1px; background: rgba(255,255,255,0.08); align-self: stretch; }
 
-  .stat-divider {
-    width: 1px;
-    background: rgba(255,255,255,0.08);
-    align-self: stretch;
-  }
-
-  /* ── MAIN LAYOUT ── */
-  .pipeline {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1.5rem;
-    padding: 1.5rem 2rem 3rem;
-    min-height: calc(100vh - 140px);
-    align-items: start;
-  }
-
-  /* ── COLUMN ── */
-  .col {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .col-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1rem;
-    border-radius: 10px;
-    position: sticky;
-    top: 72px;
-    z-index: 10;
-  }
-
+  /* PIPELINE */
+  .pipeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5rem; padding: 1.5rem 2rem 3rem; min-height: calc(100vh - 140px); align-items: start; }
+  .col { display: flex; flex-direction: column; gap: 1rem; }
+  .col-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-radius: 10px; position: sticky; top: 72px; z-index: 10; }
   .col-header.yellow { background: rgba(245,166,35,0.12); border: 1px solid rgba(245,166,35,0.25); }
   .col-header.green  { background: rgba(39,174,96,0.12);  border: 1px solid rgba(39,174,96,0.25); }
   .col-header.blue   { background: rgba(41,128,185,0.12); border: 1px solid rgba(41,128,185,0.25); }
   .col-header.teal   { background: rgba(22,160,133,0.12); border: 1px solid rgba(22,160,133,0.25); }
-
-  .col-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .col-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-  }
+  .col-title { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+  .col-dot { width: 8px; height: 8px; border-radius: 50%; }
   .yellow .col-dot { background: var(--stage-yellow); }
   .green  .col-dot { background: var(--stage-green); }
   .blue   .col-dot { background: var(--stage-blue); }
   .teal   .col-dot { background: var(--stage-teal); }
-
-  .col-count {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.7rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: 20px;
-    font-weight: 400;
-  }
+  .col-count { font-family: 'DM Mono', monospace; font-size: 0.7rem; padding: 0.2rem 0.6rem; border-radius: 20px; }
   .yellow .col-count { background: rgba(245,166,35,0.2); color: var(--stage-yellow); }
   .green  .col-count { background: rgba(39,174,96,0.2);  color: var(--stage-green); }
   .blue   .col-count { background: rgba(41,128,185,0.2); color: var(--stage-blue); }
   .teal   .col-count { background: rgba(22,160,133,0.2); color: var(--stage-teal); }
 
-  /* ── ORDER CARD ── */
-  .order-card {
-    background: var(--card-bg);
-    border-radius: 12px;
-    border: 1px solid var(--border);
-    padding: 1rem 1.1rem;
-    box-shadow: var(--shadow);
-    transition: box-shadow 0.2s, transform 0.2s;
-    animation: cardIn 0.3s ease;
-  }
-  @keyframes cardIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
+  /* CARDS */
+  .order-card { background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border); padding: 1rem 1.1rem; box-shadow: var(--shadow); transition: box-shadow 0.2s, transform 0.2s; animation: cardIn 0.3s ease; }
+  @keyframes cardIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
   .order-card:hover { box-shadow: var(--shadow-hover); transform: translateY(-1px); }
   .order-card.urgent { border-left: 3px solid var(--danger); }
-
-  .card-top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: 0.6rem;
-  }
-
-  .order-num {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.75rem;
-    color: var(--gold);
-    font-weight: 400;
-  }
-
-  .countdown {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.65rem;
-    padding: 0.2rem 0.5rem;
-    border-radius: 6px;
-    font-weight: 400;
-  }
+  .card-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.6rem; }
+  .order-num { font-family: 'DM Mono', monospace; font-size: 0.75rem; color: var(--gold); }
+  .countdown { font-family: 'DM Mono', monospace; font-size: 0.65rem; padding: 0.2rem 0.5rem; border-radius: 6px; }
   .countdown.safe   { background: #eafaf1; color: #27ae60; }
   .countdown.warn   { background: #fef9e7; color: #f39c12; }
   .countdown.danger { background: #fdedec; color: #c0392b; animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
-
-  .customer-name {
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: var(--text-primary);
-    margin-bottom: 0.2rem;
-  }
-
-  .order-meta {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-    margin-bottom: 0.75rem;
-  }
-
-  .order-price {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.8rem;
-    font-weight: 400;
-    color: var(--brown);
-  }
-
-  .order-date {
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    font-family: 'DM Mono', monospace;
-  }
-
-  .order-items {
-    font-size: 0.72rem;
-    color: var(--text-secondary);
-    margin-bottom: 0.75rem;
-    line-height: 1.5;
-  }
-
-  .order-note {
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    background: var(--beige-mid);
-    border-radius: 6px;
-    padding: 0.4rem 0.6rem;
-    margin-bottom: 0.75rem;
-    font-style: italic;
-    border-left: 2px solid var(--beige-dark);
-  }
-
-  .card-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .btn-action {
-    width: 100%;
-    padding: 0.55rem 0.75rem;
-    border-radius: 8px;
-    border: none;
-    font-family: 'Jost', sans-serif;
-    font-size: 0.75rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    letter-spacing: 0.03em;
-    display: flex; align-items: center; justify-content: center; gap: 0.4rem;
-  }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.6} }
+  .customer-name { font-size: 0.9rem; font-weight: 500; color: var(--text-primary); margin-bottom: 0.2rem; }
+  .order-meta { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; }
+  .order-price { font-family: 'DM Mono', monospace; font-size: 0.8rem; color: var(--brown); }
+  .order-date { font-size: 0.7rem; color: var(--text-muted); font-family: 'DM Mono', monospace; }
+  .order-items { font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 0.75rem; line-height: 1.5; }
+  .order-note { font-size: 0.7rem; color: var(--text-muted); background: var(--beige-mid); border-radius: 6px; padding: 0.4rem 0.6rem; margin-bottom: 0.75rem; font-style: italic; border-left: 2px solid var(--beige-dark); }
+  .card-actions { display: flex; flex-direction: column; gap: 0.5rem; }
+  .btn-action { width: 100%; padding: 0.55rem 0.75rem; border-radius: 8px; border: none; font-family: 'Jost', sans-serif; font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.4rem; }
   .btn-action:disabled { opacity: 0.4; cursor: not-allowed; }
-
   .btn-confirm { background: #eafaf1; color: #1e8449; border: 1px solid #a9dfbf; }
   .btn-confirm:hover:not(:disabled) { background: #27ae60; color: white; }
-
   .btn-ship { background: #eaf2fb; color: #1a5276; border: 1px solid #a9cce3; }
   .btn-ship:hover:not(:disabled) { background: #2980b9; color: white; }
-
   .btn-collect { background: #e8f8f5; color: #0e6655; border: 1px solid #a2d9ce; }
   .btn-collect:hover:not(:disabled) { background: #16a085; color: white; }
-
   .btn-cancel { background: #fdedec; color: #922b21; border: 1px solid #f1948a; }
   .btn-cancel:hover:not(:disabled) { background: #c0392b; color: white; }
-
-  .btn-secondary {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-    font-size: 0.7rem;
-  }
+  .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.7rem; }
   .btn-secondary:hover { background: var(--beige-mid); }
 
-  /* ── NOTE INPUT ── */
-  .note-area {
-    display: none;
-    flex-direction: column;
-    gap: 0.4rem;
-    margin-bottom: 0.5rem;
-  }
+  /* NOTE */
+  .note-area { display: none; flex-direction: column; gap: 0.4rem; margin-bottom: 0.5rem; }
   .note-area.open { display: flex; }
-  .note-input {
-    width: 100%;
-    padding: 0.5rem 0.6rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-family: 'Jost', sans-serif;
-    font-size: 0.75rem;
-    color: var(--text-primary);
-    background: var(--beige-mid);
-    resize: none;
-    outline: none;
-    transition: border-color 0.2s;
-  }
+  .note-input { width: 100%; padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 6px; font-family: 'Jost', sans-serif; font-size: 0.75rem; color: var(--text-primary); background: var(--beige-mid); resize: none; outline: none; transition: border-color 0.2s; }
   .note-input:focus { border-color: var(--gold); }
-  .note-save {
-    align-self: flex-end;
-    padding: 0.35rem 0.8rem;
-    background: var(--brown);
-    color: var(--beige);
-    border: none;
-    border-radius: 6px;
-    font-family: 'Jost', sans-serif;
-    font-size: 0.7rem;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
+  .note-save { align-self: flex-end; padding: 0.35rem 0.8rem; background: var(--brown); color: var(--beige); border: none; border-radius: 6px; font-family: 'Jost', sans-serif; font-size: 0.7rem; cursor: pointer; transition: background 0.2s; }
   .note-save:hover { background: var(--gold); color: var(--brown); }
 
-  /* ── EMPTY STATE ── */
-  .empty-col {
-    text-align: center;
-    padding: 2rem 1rem;
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    font-family: 'DM Mono', monospace;
-    letter-spacing: 0.05em;
-  }
+  /* EMPTY / LOADING */
+  .empty-col { text-align: center; padding: 2rem 1rem; color: var(--text-muted); font-size: 0.75rem; font-family: 'DM Mono', monospace; letter-spacing: 0.05em; }
   .empty-icon { font-size: 1.5rem; margin-bottom: 0.5rem; opacity: 0.4; }
+  .loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4rem; color: var(--text-muted); gap: 1rem; grid-column: 1 / -1; }
+  .spinner { width: 32px; height: 32px; border: 2px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.8s linear infinite; }
 
-  /* ── LOADING ── */
-  .loading-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 4rem;
-    color: var(--text-muted);
-    gap: 1rem;
-    grid-column: 1 / -1;
-  }
-  .spinner {
-    width: 32px; height: 32px;
-    border: 2px solid var(--border);
-    border-top-color: var(--gold);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
-  /* ── MODAL ── */
-  .modal-overlay {
-    position: fixed; inset: 0;
-    background: rgba(42,31,23,0.6);
-    backdrop-filter: blur(4px);
-    z-index: 500;
-    display: none;
-    align-items: center;
-    justify-content: center;
-  }
+  /* MODAL */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(42,31,23,0.6); backdrop-filter: blur(4px); z-index: 500; display: none; align-items: center; justify-content: center; }
   .modal-overlay.open { display: flex; }
-  .modal {
-    background: white;
-    border-radius: 16px;
-    padding: 2rem;
-    width: 420px;
-    max-width: 90vw;
-    box-shadow: 0 24px 64px rgba(0,0,0,0.2);
-    animation: modalIn 0.25s ease;
-  }
-  @keyframes modalIn {
-    from { opacity: 0; transform: scale(0.95) translateY(10px); }
-    to   { opacity: 1; transform: scale(1) translateY(0); }
-  }
-  .modal-title {
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0.5rem;
-  }
-  .modal-desc {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    margin-bottom: 1.5rem;
-    line-height: 1.6;
-  }
-  .modal-actions {
-    display: flex;
-    gap: 0.75rem;
-    justify-content: flex-end;
-  }
-  .modal-btn {
-    padding: 0.6rem 1.25rem;
-    border-radius: 8px;
-    border: none;
-    font-family: 'Jost', sans-serif;
-    font-size: 0.82rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
+  .modal { background: white; border-radius: 16px; padding: 2rem; width: 420px; max-width: 90vw; box-shadow: 0 24px 64px rgba(0,0,0,0.2); animation: modalIn 0.25s ease; }
+  @keyframes modalIn { from{opacity:0;transform:scale(0.95) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)} }
+  .modal-title { font-size: 1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem; }
+  .modal-desc { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 1.5rem; line-height: 1.6; }
+  .modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
+  .modal-btn { padding: 0.6rem 1.25rem; border-radius: 8px; border: none; font-family: 'Jost', sans-serif; font-size: 0.82rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }
   .modal-btn.cancel { background: var(--beige-mid); color: var(--text-secondary); }
   .modal-btn.cancel:hover { background: var(--border); }
   .modal-btn.confirm { background: var(--brown); color: white; }
@@ -559,70 +157,28 @@
   .modal-btn.danger { background: var(--danger); color: white; }
   .modal-btn.danger:hover { background: #a93226; }
 
-  /* ── TOAST ── */
-  .toast-container {
-    position: fixed;
-    bottom: 2rem; right: 2rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    z-index: 900;
-  }
-  .toast {
-    background: var(--brown);
-    color: var(--beige);
-    padding: 0.75rem 1.25rem;
-    border-radius: 10px;
-    font-size: 0.8rem;
-    font-family: 'Jost', sans-serif;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-    animation: toastIn 0.3s ease;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    max-width: 320px;
-  }
+  /* TOAST */
+  .toast-container { position: fixed; bottom: 2rem; right: 2rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 900; }
+  .toast { background: var(--brown); color: var(--beige); padding: 0.75rem 1.25rem; border-radius: 10px; font-size: 0.8rem; font-family: 'Jost', sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,0.2); animation: toastIn 0.3s ease; display: flex; align-items: center; gap: 0.5rem; max-width: 320px; }
   .toast.success { border-left: 3px solid var(--stage-green); }
   .toast.error   { border-left: 3px solid var(--danger); }
   .toast.info    { border-left: 3px solid var(--gold); }
-  @keyframes toastIn {
-    from { opacity: 0; transform: translateX(20px); }
-    to   { opacity: 1; transform: translateX(0); }
-  }
+  @keyframes toastIn { from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)} }
 
-  /* ── SCROLLBAR ── */
+  .view-only-bar { background: rgba(201,169,110,0.1); border-bottom: 1px solid rgba(201,169,110,0.2); padding: 0.5rem 2rem; font-size: 0.7rem; color: var(--gold); font-family: 'DM Mono', monospace; letter-spacing: 0.08em; text-align: center; display: none; }
+  .view-only-bar.visible { display: block; }
+
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--beige-dark); border-radius: 3px; }
 
-  /* ── RESPONSIVE ── */
-  @media (max-width: 1100px) {
-    .pipeline { grid-template-columns: repeat(2, 1fr); }
-  }
-  @media (max-width: 640px) {
-    .pipeline { grid-template-columns: 1fr; padding: 1rem; }
-    header { padding: 0 1rem; }
-    .stats-bar { padding: 0.75rem 1rem; gap: 1rem; }
-  }
-
-  /* ── VIEW ONLY BADGE ── */
-  .view-only-bar {
-    background: rgba(201,169,110,0.1);
-    border-bottom: 1px solid rgba(201,169,110,0.2);
-    padding: 0.5rem 2rem;
-    font-size: 0.7rem;
-    color: var(--gold);
-    font-family: 'DM Mono', monospace;
-    letter-spacing: 0.08em;
-    text-align: center;
-    display: none;
-  }
-  .view-only-bar.visible { display: block; }
+  @media (max-width: 1100px) { .pipeline { grid-template-columns: repeat(2,1fr); } }
+  @media (max-width: 640px)  { .pipeline { grid-template-columns: 1fr; padding: 1rem; } header { padding: 0 1rem; } .stats-bar { padding: 0.75rem 1rem; gap: 1rem; } }
 </style>
 </head>
 <body>
 
-<!-- ── PIN SCREEN ── -->
+<!-- PIN -->
 <div id="pin-screen">
   <div class="pin-logo">
     <div class="brand">Muhra</div>
@@ -653,9 +209,8 @@
   </div>
 </div>
 
-<!-- ── APP ── -->
+<!-- APP -->
 <div id="app" style="display:none;">
-
   <header>
     <div class="header-brand">Muhra <span>/ COD</span></div>
     <div class="header-right">
@@ -671,53 +226,31 @@
     👁 View-only mode — Contact Asmaa to make changes
   </div>
 
-  <div class="stats-bar" id="stats-bar">
-    <div class="stat-item">
-      <span class="stat-label">Total Active</span>
-      <span class="stat-value" id="stat-total">—</span>
-    </div>
+  <div class="stats-bar">
+    <div class="stat-item"><span class="stat-label">Total Active</span><span class="stat-value" id="stat-total">—</span></div>
     <div class="stat-divider"></div>
-    <div class="stat-item">
-      <span class="stat-label">Awaiting Deposit</span>
-      <span class="stat-value yellow" id="stat-s1">—</span>
-    </div>
+    <div class="stat-item"><span class="stat-label">Awaiting Deposit</span><span class="stat-value yellow" id="stat-s1">—</span></div>
     <div class="stat-divider"></div>
-    <div class="stat-item">
-      <span class="stat-label">Confirmed</span>
-      <span class="stat-value green" id="stat-s2">—</span>
-    </div>
+    <div class="stat-item"><span class="stat-label">Confirmed</span><span class="stat-value green" id="stat-s2">—</span></div>
     <div class="stat-divider"></div>
-    <div class="stat-item">
-      <span class="stat-label">In Delivery</span>
-      <span class="stat-value blue" id="stat-s3">—</span>
-    </div>
+    <div class="stat-item"><span class="stat-label">In Delivery</span><span class="stat-value blue" id="stat-s3">—</span></div>
     <div class="stat-divider"></div>
-    <div class="stat-item">
-      <span class="stat-label">Collected</span>
-      <span class="stat-value teal" id="stat-s4">—</span>
-    </div>
+    <div class="stat-item"><span class="stat-label">Collected</span><span class="stat-value teal" id="stat-s4">—</span></div>
     <div class="stat-divider"></div>
-    <div class="stat-item">
-      <span class="stat-label">Value at Risk</span>
-      <span class="stat-value" id="stat-value">—</span>
-    </div>
+    <div class="stat-item"><span class="stat-label">Value at Risk</span><span class="stat-value" id="stat-value">—</span></div>
     <div class="stat-divider"></div>
-    <div class="stat-item">
-      <span class="stat-label">Expiring Today</span>
-      <span class="stat-value" id="stat-expiring" style="color:var(--danger)">—</span>
-    </div>
+    <div class="stat-item"><span class="stat-label">Expiring Today</span><span class="stat-value" id="stat-expiring" style="color:var(--danger)">—</span></div>
   </div>
 
   <div class="pipeline" id="pipeline">
-    <div class="loading-state" style="grid-column:1/-1">
+    <div class="loading-state">
       <div class="spinner"></div>
       <span style="font-family:'DM Mono',monospace;font-size:0.75rem;letter-spacing:0.05em;">Loading orders...</span>
     </div>
   </div>
-
 </div>
 
-<!-- ── MODAL ── -->
+<!-- MODAL -->
 <div class="modal-overlay" id="modal-overlay">
   <div class="modal">
     <div class="modal-title" id="modal-title">Confirm Action</div>
@@ -729,581 +262,437 @@
   </div>
 </div>
 
-<!-- ── TOASTS ── -->
 <div class="toast-container" id="toast-container"></div>
 
 <script>
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════
 // CONFIG
-// ═══════════════════════════════════════════════
-const CONFIG = {
-  shopify: {
-    store: 'muhrastore-2.myshopify.com',
-    token: 'atkn_dc59ec0df2e2bf043eab5323c5fe04a11cd1e83c1960688d4acd679636766e22',
-    apiVersion: '2024-01'
-  },
-  supabase: {
-    url: 'https://ltwzmjqrlvqbndmipufm.supabase.co',
-    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0d3ptanFybHZxYm5kbWlwdWZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMDA3NTEsImV4cCI6MjA5MjY3Njc1MX0.pvp5NFr2tOTw_MJHIxHO9kK7cQ75QjL5N8AcewXIVOM'
-  },
-  pins: {
-    '0000': 'asmaa',    // full access
-    '0000': 'viewer'    // view only — change pin to differentiate
-  },
-  // 0000 = Asmaa (operator), viewer pins handled below
-  operatorPin: '0000',
-  viewerPin: '0000'
-};
+// ═══════════════════════════════
+const PROXY   = 'https://ltwzmjqrlvqbndmipufm.supabase.co/functions/v1/shopify-proxy';
+const SB_URL  = 'https://ltwzmjqrlvqbndmipufm.supabase.co';
+const SB_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0d3ptanFybHZxYm5kbWlwdWZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMDA3NTEsImV4cCI6MjA5MjY3Njc1MX0.pvp5NFr2tOTw_MJHIxHO9kK7cQ75QjL5N8AcewXIVOM';
 
-// ═══════════════════════════════════════════════
+// PINs — 0000 = Asmaa (operator) | 1111 = Mohamed & Maha (viewer)
+const PINS = { '0000': 'operator', '1111': 'viewer' };
+
+// ═══════════════════════════════
 // STATE
-// ═══════════════════════════════════════════════
-let currentRole = null; // 'operator' | 'viewer'
-let pipeline = {};      // { [shopify_order_id]: { stage, ... } }
+// ═══════════════════════════════
+let currentRole  = null;
 let pendingAction = null;
-let pinBuffer = '';
+let pinBuffer    = '';
 
-// ═══════════════════════════════════════════════
-// PIN LOGIC
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════
+// PIN
+// ═══════════════════════════════
 function pinPress(d) {
   if (pinBuffer.length >= 4) return;
   pinBuffer += d;
   updateDots();
   if (pinBuffer.length === 4) setTimeout(checkPin, 150);
 }
-
-function pinDelete() {
-  pinBuffer = pinBuffer.slice(0, -1);
-  updateDots();
-}
-
+function pinDelete() { pinBuffer = pinBuffer.slice(0,-1); updateDots(); }
 function updateDots() {
-  for (let i = 0; i < 4; i++) {
-    document.getElementById('d' + i).classList.toggle('filled', i < pinBuffer.length);
-  }
+  for (let i=0;i<4;i++) document.getElementById('d'+i).classList.toggle('filled', i < pinBuffer.length);
 }
-
 function checkPin() {
-  const pin = pinBuffer;
-  pinBuffer = '';
-  updateDots();
-
-  // For simplicity: 0000 = operator (Asmaa), any other specific pin = viewer
-  // You can change viewerPin to differentiate (e.g. '1111')
-  if (pin === '0000') {
-    // Default: Asmaa as operator. If you want viewer-only, set a separate pin.
-    currentRole = 'operator';
-    enterApp();
-  } else {
-    showPinError('Incorrect PIN');
-  }
+  const pin = pinBuffer; pinBuffer = ''; updateDots();
+  const role = PINS[pin];
+  if (role) { currentRole = role; enterApp(); }
+  else showPinError('Incorrect PIN');
 }
-
 function showPinError(msg) {
   const el = document.getElementById('pin-error');
   el.textContent = msg;
-  setTimeout(() => { el.textContent = ''; }, 2000);
+  setTimeout(()=>{ el.textContent=''; }, 2000);
 }
-
 function enterApp() {
   document.getElementById('pin-screen').classList.add('hidden');
   document.getElementById('app').style.display = 'block';
-  document.getElementById('role-badge').textContent =
-    currentRole === 'operator' ? '⚙ Operator' : '👁 Viewer';
-  if (currentRole === 'viewer') {
-    document.getElementById('view-only-bar').classList.add('visible');
-  }
+  document.getElementById('role-badge').textContent = currentRole === 'operator' ? '⚙ Operator' : '👁 Viewer';
+  if (currentRole === 'viewer') document.getElementById('view-only-bar').classList.add('visible');
   loadAll();
 }
-
 function logout() {
-  currentRole = null;
-  pinBuffer = '';
-  updateDots();
+  currentRole = null; pinBuffer = ''; updateDots();
   document.getElementById('pin-screen').classList.remove('hidden');
   document.getElementById('app').style.display = 'none';
   document.getElementById('view-only-bar').classList.remove('visible');
 }
 
-// ═══════════════════════════════════════════════
-// SHOPIFY API
-// ═══════════════════════════════════════════════
-async function shopifyFetch(endpoint, method = 'GET', body = null) {
-  const url = `https://${CONFIG.shopify.store}/admin/api/${CONFIG.shopify.apiVersion}/${endpoint}`;
+// ═══════════════════════════════
+// SHOPIFY via PROXY
+// ═══════════════════════════════
+async function shopifyFetch(path, method='GET', body=null) {
+  const url = `${PROXY}?path=${encodeURIComponent(path)}`;
   const opts = {
-    method,
+    method: 'POST',                      // always POST to Edge Function
     headers: {
-      'X-Shopify-Access-Token': CONFIG.shopify.token,
-      'Content-Type': 'application/json'
-    }
+      'Content-Type': 'application/json',
+      'apikey': SB_KEY,
+      'x-shopify-method': method         // tells proxy what method to use on Shopify
+    },
+    body: JSON.stringify({ body })       // wrap shopify body inside
   };
-  if (body) opts.body = JSON.stringify(body);
   const res = await fetch(url, opts);
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Shopify ${res.status}: ${err}`);
+    const txt = await res.text();
+    throw new Error(`Shopify proxy ${res.status}: ${txt}`);
   }
   return res.json();
 }
 
 async function getOrders() {
-  // Get all pending payment (COD) orders + fulfilled orders we're tracking
-  const [pendingRes, fulfilledRes] = await Promise.all([
+  const [r1, r2] = await Promise.all([
     shopifyFetch('orders.json?financial_status=pending&status=open&limit=250'),
     shopifyFetch('orders.json?fulfillment_status=fulfilled&financial_status=pending&status=open&limit=50')
   ]);
-  const allOrders = [...(pendingRes.orders || []), ...(fulfilledRes.orders || [])];
-  // Deduplicate by id
+  const all = [...(r1.orders||[]), ...(r2.orders||[])];
   const seen = new Set();
-  return allOrders.filter(o => { if (seen.has(o.id)) return false; seen.add(o.id); return true; });
+  return all.filter(o=>{ if(seen.has(o.id)) return false; seen.add(o.id); return true; });
 }
 
-async function cancelShopifyOrder(orderId, reason = 'customer') {
-  return shopifyFetch(`orders/${orderId}/cancel.json`, 'POST', { reason, restock: true });
+async function cancelShopifyOrder(orderId) {
+  return shopifyFetch(`orders/${orderId}/cancel.json`, 'POST', { reason:'customer', restock:true });
 }
 
 async function addOrderNote(orderId, note) {
-  return shopifyFetch(`orders/${orderId}.json`, 'PUT', { order: { id: orderId, note } });
+  return shopifyFetch(`orders/${orderId}.json`, 'PUT', { order:{ id:orderId, note } });
 }
 
 async function markOrderPaid(orderId) {
-  // Create a transaction to mark as paid
   return shopifyFetch(`orders/${orderId}/transactions.json`, 'POST', {
-    transaction: { kind: 'capture', status: 'success', amount: null }
+    transaction:{ kind:'capture', status:'success' }
   });
 }
 
-// ═══════════════════════════════════════════════
-// SUPABASE API
-// ═══════════════════════════════════════════════
-const SB = CONFIG.supabase;
-
-async function sbFetch(path, method = 'GET', body = null) {
-  const res = await fetch(`${SB.url}/rest/v1/${path}`, {
+// ═══════════════════════════════
+// SUPABASE
+// ═══════════════════════════════
+async function sbFetch(path, method='GET', body=null) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
     method,
     headers: {
-      'apikey': SB.key,
-      'Authorization': `Bearer ${SB.key}`,
+      'apikey': SB_KEY,
+      'Authorization': `Bearer ${SB_KEY}`,
       'Content-Type': 'application/json',
-      'Prefer': method === 'POST' ? 'return=representation' : ''
+      'Prefer': method==='POST' ? 'return=representation' : ''
     },
     body: body ? JSON.stringify(body) : null
   });
-  if (method === 'DELETE' || res.status === 204) return {};
+  if (res.status===204 || method==='DELETE') return {};
   return res.json();
 }
 
 async function getPipelineRecords() {
-  return sbFetch('cod_pipeline?select=*&stage=neq.cancelled&stage=neq.archived');
-}
-
-async function upsertRecord(data) {
-  return sbFetch('cod_pipeline', 'POST', data);
+  return sbFetch('cod_pipeline?select=*');
 }
 
 async function updateRecord(shopifyOrderId, data) {
   return sbFetch(`cod_pipeline?shopify_order_id=eq.${shopifyOrderId}`, 'PATCH', {
-    ...data,
-    updated_at: new Date().toISOString()
+    ...data, updated_at: new Date().toISOString()
   });
 }
 
-// ═══════════════════════════════════════════════
+async function insertRecord(data) {
+  return sbFetch('cod_pipeline', 'POST', data);
+}
+
+// ═══════════════════════════════
 // LOAD & MERGE
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════
 async function loadAll() {
   const btn = document.getElementById('refresh-btn');
   btn.classList.add('spinning');
-
   try {
     const [orders, sbRecords] = await Promise.all([getOrders(), getPipelineRecords()]);
 
-    // Build pipeline map from Supabase
     const sbMap = {};
-    if (Array.isArray(sbRecords)) {
-      sbRecords.forEach(r => { sbMap[r.shopify_order_id] = r; });
-    }
+    if (Array.isArray(sbRecords)) sbRecords.forEach(r => sbMap[r.shopify_order_id] = r);
 
-    // Merge: for each Shopify order, get or create pipeline record
     const merged = [];
     for (const order of orders) {
       const sid = String(order.id);
       let rec = sbMap[sid];
-
       if (!rec) {
-        // New order — insert into Supabase as awaiting_deposit
         const newRec = {
           shopify_order_id: sid,
-          order_number: order.order_number ? `#${order.order_number}` : `#${order.name}`,
+          order_number: `#${order.order_number || order.name}`,
           customer_name: order.billing_address
-            ? `${order.billing_address.first_name} ${order.billing_address.last_name}`.trim()
-            : (order.customer ? `${order.customer.first_name} ${order.customer.last_name}`.trim() : 'Unknown'),
-          total_price: parseFloat(order.total_price),
+            ? `${order.billing_address.first_name||''} ${order.billing_address.last_name||''}`.trim()
+            : order.customer ? `${order.customer.first_name||''} ${order.customer.last_name||''}`.trim() : 'Unknown',
+          total_price: parseFloat(order.total_price||0),
           created_at_shopify: order.created_at,
-          stage: order.fulfillment_status === 'fulfilled' ? 'in_delivery' : 'awaiting_deposit'
+          stage: order.fulfillment_status==='fulfilled' ? 'in_delivery' : 'awaiting_deposit'
         };
-        try {
-          const inserted = await sbFetch('cod_pipeline', 'POST', newRec);
-          rec = Array.isArray(inserted) ? inserted[0] : newRec;
-        } catch(e) { rec = newRec; }
+        try { const ins = await insertRecord(newRec); rec = Array.isArray(ins)?ins[0]:newRec; }
+        catch(e) { rec = newRec; }
       }
-
-      // If Shopify says fulfilled but our record says confirmed → move to in_delivery
-      if (order.fulfillment_status === 'fulfilled' && rec.stage === 'confirmed') {
-        await updateRecord(sid, { stage: 'in_delivery', shipped_at: new Date().toISOString() });
-        rec.stage = 'in_delivery';
+      if (order.fulfillment_status==='fulfilled' && rec.stage==='confirmed') {
+        await updateRecord(sid, { stage:'in_delivery', shipped_at: new Date().toISOString() });
+        rec = { ...rec, stage:'in_delivery' };
       }
-
       merged.push({ order, rec });
     }
 
-    // Also include Supabase records that might be in in_delivery/collected
-    // even if Shopify order is no longer "pending" financially
+    // Also show in_delivery and collected from Supabase that may no longer be in open orders
+    if (Array.isArray(sbRecords)) {
+      const shopifyIds = new Set(orders.map(o=>String(o.id)));
+      sbRecords.forEach(rec => {
+        if (!shopifyIds.has(rec.shopify_order_id) && (rec.stage==='in_delivery'||rec.stage==='collected')) {
+          merged.push({ order: null, rec });
+        }
+      });
+    }
+
     renderPipeline(merged);
     updateStats(merged);
-
   } catch(e) {
     console.error(e);
-    showToast('Failed to load orders: ' + e.message, 'error');
+    showToast('Failed to load: ' + e.message, 'error');
     renderError();
   }
-
   btn.classList.remove('spinning');
 }
 
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════
 // RENDER
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════
 function renderPipeline(merged) {
-  const stages = {
-    awaiting_deposit: [],
-    confirmed: [],
-    in_delivery: [],
-    collected: []
-  };
-
-  merged.forEach(({ order, rec }) => {
-    const stage = rec.stage || 'awaiting_deposit';
-    if (stages[stage] !== undefined) stages[stage].push({ order, rec });
+  const stages = { awaiting_deposit:[], confirmed:[], in_delivery:[], collected:[] };
+  merged.forEach(item => {
+    const s = item.rec.stage || 'awaiting_deposit';
+    if (stages[s]) stages[s].push(item);
   });
-
   const isOp = currentRole === 'operator';
-
-  const html = `
-    ${renderColumn('awaiting_deposit', '🟡 Awaiting Deposit', 'yellow', stages.awaiting_deposit, isOp)}
-    ${renderColumn('confirmed', '🟢 Confirmed', 'green', stages.confirmed, isOp)}
-    ${renderColumn('in_delivery', '🚚 In Delivery', 'blue', stages.in_delivery, isOp)}
-    ${renderColumn('collected', '✅ Collected', 'teal', stages.collected, isOp)}
-  `;
-
-  document.getElementById('pipeline').innerHTML = html;
+  document.getElementById('pipeline').innerHTML =
+    renderCol('awaiting_deposit','Awaiting Deposit','yellow',stages.awaiting_deposit,isOp) +
+    renderCol('confirmed','Confirmed','green',stages.confirmed,isOp) +
+    renderCol('in_delivery','In Delivery','blue',stages.in_delivery,isOp) +
+    renderCol('collected','Collected','teal',stages.collected,isOp);
 }
 
-function renderColumn(stage, title, color, items, isOp) {
-  const label = title.replace(/^[^\s]+\s/, '');
+function renderCol(stage, title, color, items, isOp) {
   const cards = items.length
-    ? items.map(({ order, rec }) => renderCard(stage, order, rec, isOp)).join('')
+    ? items.map(({order,rec}) => renderCard(stage,order,rec,isOp)).join('')
     : `<div class="empty-col"><div class="empty-icon">○</div>No orders</div>`;
-
-  return `
-    <div class="col">
-      <div class="col-header ${color}">
-        <div class="col-title">
-          <div class="col-dot"></div>
-          ${label}
-        </div>
-        <div class="col-count">${items.length}</div>
-      </div>
-      ${cards}
-    </div>
-  `;
+  return `<div class="col">
+    <div class="col-header ${color}">
+      <div class="col-title"><div class="col-dot"></div>${title}</div>
+      <div class="col-count">${items.length}</div>
+    </div>${cards}</div>`;
 }
 
 function renderCard(stage, order, rec, isOp) {
-  const sid = String(order.id);
-  const orderNum = rec.order_number || `#${order.name}`;
-  const name = rec.customer_name || 'Unknown';
-  const price = parseFloat(rec.total_price || order.total_price || 0);
-  const createdAt = new Date(rec.created_at_shopify || order.created_at);
-  const daysOld = Math.floor((Date.now() - createdAt) / 86400000);
-  const daysLeft = 7 - daysOld;
+  const sid   = rec.shopify_order_id;
+  const num   = rec.order_number || (order ? `#${order.name}` : '—');
+  const name  = rec.customer_name || 'Unknown';
+  const price = parseFloat(rec.total_price || (order ? order.total_price : 0) || 0);
+  const createdAt = new Date(rec.created_at_shopify || (order ? order.created_at : Date.now()));
+  const daysOld   = Math.floor((Date.now()-createdAt)/86400000);
+  const daysLeft  = 7 - daysOld;
+  const items     = order ? (order.line_items||[]).slice(0,2).map(i=>`${i.name} ×${i.quantity}`).join(', ')
+                              + ((order.line_items||[]).length>2?` +${order.line_items.length-2} more`:'') : '';
+  const note  = rec.notes || (order ? order.note : '') || '';
+  const phone = order ? (order.billing_address?.phone || order.shipping_address?.phone || '') : '';
+  const isUrgent = stage==='awaiting_deposit' && daysLeft<=1;
 
-  const items = (order.line_items || []).slice(0, 2).map(i => `${i.name} ×${i.quantity}`).join(', ')
-    + ((order.line_items || []).length > 2 ? ` +${order.line_items.length - 2} more` : '');
-
-  const note = rec.notes || order.note || '';
-  const isUrgent = stage === 'awaiting_deposit' && daysLeft <= 1;
-
-  let countdownHtml = '';
-  if (stage === 'awaiting_deposit') {
-    const cls = daysLeft <= 0 ? 'danger' : daysLeft <= 2 ? 'warn' : 'safe';
-    const label = daysLeft <= 0 ? 'EXPIRED' : daysLeft === 1 ? '1d left' : `${daysLeft}d left`;
-    countdownHtml = `<span class="countdown ${cls}">${label}</span>`;
+  let countdown = '';
+  if (stage==='awaiting_deposit') {
+    const cls = daysLeft<=0?'danger':daysLeft<=2?'warn':'safe';
+    const lbl = daysLeft<=0?'EXPIRED':daysLeft===1?'1d left':`${daysLeft}d left`;
+    countdown = `<span class="countdown ${cls}">${lbl}</span>`;
   }
-
-  const phone = order.billing_address?.phone || order.shipping_address?.phone || '';
 
   let actions = '';
   if (isOp) {
-    if (stage === 'awaiting_deposit') {
+    const sid_js = sid.replace(/'/g,"\\'");
+    const num_js = num.replace(/'/g,"\\'");
+    const nm_js  = name.replace(/'/g,"\\'");
+    if (stage==='awaiting_deposit') {
       actions = `
-        <button class="btn-action btn-confirm" onclick="confirmDeposit('${sid}', '${orderNum}', '${name}')">✓ Deposit Received</button>
+        <button class="btn-action btn-confirm" onclick="confirmDeposit('${sid_js}','${num_js}','${nm_js}')">✓ Deposit Received</button>
         <div class="note-area" id="note-${sid}">
-          <textarea class="note-input" id="noteinput-${sid}" rows="2" placeholder="Add note to Shopify order..."></textarea>
-          <button class="note-save" onclick="saveNote('${sid}')">Save Note</button>
+          <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note to Shopify order..."></textarea>
+          <button class="note-save" onclick="saveNote('${sid_js}')">Save Note</button>
         </div>
-        <div style="display:flex;gap:0.4rem;">
-          <button class="btn-action btn-secondary" style="flex:1" onclick="toggleNote('${sid}')">📝 Note</button>
-          <button class="btn-action btn-cancel" style="flex:1" onclick="cancelOrder('${sid}', '${orderNum}', '${name}')">✕ Cancel</button>
-        </div>
-      `;
-    } else if (stage === 'confirmed') {
+        <div style="display:flex;gap:0.4rem">
+          <button class="btn-action btn-secondary" style="flex:1" onclick="toggleNote('${sid_js}')">📝 Note</button>
+          <button class="btn-action btn-cancel" style="flex:1" onclick="cancelOrder('${sid_js}','${num_js}','${nm_js}')">✕ Cancel</button>
+        </div>`;
+    } else if (stage==='confirmed') {
       actions = `
-        <button class="btn-action btn-ship" onclick="markShipped('${sid}', '${orderNum}', '${name}')">🚚 Handed to Wijha</button>
+        <button class="btn-action btn-ship" onclick="markShipped('${sid_js}','${num_js}','${nm_js}')">🚚 Handed to Wijha</button>
         <div class="note-area" id="note-${sid}">
-          <textarea class="note-input" id="noteinput-${sid}" rows="2" placeholder="Add note..."></textarea>
-          <button class="note-save" onclick="saveNote('${sid}')">Save Note</button>
+          <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
+          <button class="note-save" onclick="saveNote('${sid_js}')">Save Note</button>
         </div>
-        <button class="btn-action btn-secondary" onclick="toggleNote('${sid}')">📝 Note</button>
-      `;
-    } else if (stage === 'in_delivery') {
+        <button class="btn-action btn-secondary" onclick="toggleNote('${sid_js}')">📝 Note</button>`;
+    } else if (stage==='in_delivery') {
       actions = `
-        <button class="btn-action btn-collect" onclick="markCollected('${sid}', '${orderNum}', '${name}', ${price})">💰 Mark Collected</button>
+        <button class="btn-action btn-collect" onclick="markCollected('${sid_js}','${num_js}','${nm_js}',${price})">💰 Mark Collected</button>
         <div class="note-area" id="note-${sid}">
-          <textarea class="note-input" id="noteinput-${sid}" rows="2" placeholder="Add note..."></textarea>
-          <button class="note-save" onclick="saveNote('${sid}')">Save Note</button>
+          <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
+          <button class="note-save" onclick="saveNote('${sid_js}')">Save Note</button>
         </div>
-        <button class="btn-action btn-secondary" onclick="toggleNote('${sid}')">📝 Note</button>
-      `;
-    } else if (stage === 'collected') {
+        <button class="btn-action btn-secondary" onclick="toggleNote('${sid_js}')">📝 Note</button>`;
+    } else if (stage==='collected') {
       actions = `<div style="font-size:0.7rem;color:var(--stage-teal);font-family:'DM Mono',monospace;text-align:center;padding:0.25rem">✓ Archived as Paid on Shopify</div>`;
     }
   }
 
-  return `
-    <div class="order-card ${isUrgent ? 'urgent' : ''}" id="card-${sid}">
-      <div class="card-top">
-        <div>
-          <div class="order-num">${orderNum}</div>
-          <div class="customer-name">${name}</div>
-        </div>
-        ${countdownHtml}
-      </div>
-      <div class="order-meta">
-        <span class="order-price">EGP ${price.toLocaleString('en-EG', {minimumFractionDigits: 2})}</span>
-        <span class="order-date">${formatDate(createdAt)}</span>
-      </div>
-      ${items ? `<div class="order-items">${items}</div>` : ''}
-      ${phone ? `<div class="order-date" style="margin-bottom:0.5rem">📱 ${phone}</div>` : ''}
-      ${note ? `<div class="order-note">${note}</div>` : ''}
-      ${actions ? `<div class="card-actions">${actions}</div>` : ''}
+  return `<div class="order-card${isUrgent?' urgent':''}" id="card-${sid}">
+    <div class="card-top">
+      <div><div class="order-num">${num}</div><div class="customer-name">${name}</div></div>
+      ${countdown}
     </div>
-  `;
+    <div class="order-meta">
+      <span class="order-price">EGP ${price.toLocaleString('en-EG',{minimumFractionDigits:2})}</span>
+      <span class="order-date">${formatDate(createdAt)}</span>
+    </div>
+    ${items?`<div class="order-items">${items}</div>`:''}
+    ${phone?`<div class="order-date" style="margin-bottom:0.5rem">📱 ${phone}</div>`:''}
+    ${note?`<div class="order-note">${note}</div>`:''}
+    ${actions?`<div class="card-actions">${actions}</div>`:''}
+  </div>`;
 }
 
 function updateStats(merged) {
-  const counts = { awaiting_deposit: 0, confirmed: 0, in_delivery: 0, collected: 0 };
-  let totalValue = 0;
-  let expiringToday = 0;
-
-  merged.forEach(({ order, rec }) => {
-    const stage = rec.stage || 'awaiting_deposit';
-    if (counts[stage] !== undefined) counts[stage]++;
-    totalValue += parseFloat(rec.total_price || order.total_price || 0);
-
-    if (stage === 'awaiting_deposit') {
-      const daysOld = Math.floor((Date.now() - new Date(rec.created_at_shopify || order.created_at)) / 86400000);
-      if (daysOld >= 6) expiringToday++;
+  const c={awaiting_deposit:0,confirmed:0,in_delivery:0,collected:0};
+  let val=0, exp=0;
+  merged.forEach(({order,rec})=>{
+    const s=rec.stage||'awaiting_deposit';
+    if(c[s]!==undefined) c[s]++;
+    val+=parseFloat(rec.total_price||(order?order.total_price:0)||0);
+    if(s==='awaiting_deposit'){
+      const d=Math.floor((Date.now()-new Date(rec.created_at_shopify||(order?order.created_at:Date.now())))/86400000);
+      if(d>=6) exp++;
     }
   });
-
-  document.getElementById('stat-total').textContent = merged.length;
-  document.getElementById('stat-s1').textContent = counts.awaiting_deposit;
-  document.getElementById('stat-s2').textContent = counts.confirmed;
-  document.getElementById('stat-s3').textContent = counts.in_delivery;
-  document.getElementById('stat-s4').textContent = counts.collected;
-  document.getElementById('stat-value').textContent = 'EGP ' + totalValue.toLocaleString('en-EG', { maximumFractionDigits: 0 });
-  document.getElementById('stat-expiring').textContent = expiringToday;
+  document.getElementById('stat-total').textContent=merged.length;
+  document.getElementById('stat-s1').textContent=c.awaiting_deposit;
+  document.getElementById('stat-s2').textContent=c.confirmed;
+  document.getElementById('stat-s3').textContent=c.in_delivery;
+  document.getElementById('stat-s4').textContent=c.collected;
+  document.getElementById('stat-value').textContent='EGP '+val.toLocaleString('en-EG',{maximumFractionDigits:0});
+  document.getElementById('stat-expiring').textContent=exp;
 }
 
 function renderError() {
-  document.getElementById('pipeline').innerHTML = `
-    <div class="loading-state" style="grid-column:1/-1">
-      <div style="font-size:2rem">⚠</div>
-      <span style="font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--danger)">Failed to load. Check connection and refresh.</span>
-    </div>
-  `;
+  document.getElementById('pipeline').innerHTML=`<div class="loading-state" style="grid-column:1/-1">
+    <div style="font-size:2rem">⚠</div>
+    <span style="font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--danger)">Failed to load. Check console for details.</span>
+  </div>`;
 }
 
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════
 // ACTIONS
-// ═══════════════════════════════════════════════
-function confirmDeposit(sid, orderNum, name) {
-  showModal(
-    'Confirm Deposit Received',
-    `Mark deposit as received for <strong>${name}</strong> (${orderNum})? This will move the order to "Confirmed — Ready to Ship" and add a note to Shopify.`,
-    'confirm',
-    async () => {
+// ═══════════════════════════════
+function confirmDeposit(sid,num,name) {
+  showModal('Confirm Deposit Received',
+    `Mark deposit received for <strong>${name}</strong> (${num})?<br>Order will move to "Confirmed — Ready to Ship" and a note will be added on Shopify.`,
+    'confirm', async ()=>{
       try {
-        await updateRecord(sid, {
-          stage: 'confirmed',
-          deposit_confirmed_at: new Date().toISOString(),
-          deposit_confirmed_by: 'Asmaa'
-        });
-        await addOrderNote(sid, `✅ Deposit confirmed by Asmaa on ${new Date().toLocaleDateString('en-EG')}. Order ready to ship.`);
-        showToast(`${orderNum} — Deposit confirmed ✓`, 'success');
+        await updateRecord(sid,{stage:'confirmed',deposit_confirmed_at:new Date().toISOString(),deposit_confirmed_by:'Asmaa'});
+        await addOrderNote(sid,`✅ Deposit confirmed by Asmaa on ${new Date().toLocaleDateString('en-EG')}. Order ready to ship.`);
+        showToast(`${num} — Deposit confirmed ✓`,'success');
         loadAll();
-      } catch(e) {
-        showToast('Error: ' + e.message, 'error');
-      }
-    }
-  );
+      } catch(e){ showToast('Error: '+e.message,'error'); }
+    });
 }
 
-function markShipped(sid, orderNum, name) {
-  showModal(
-    'Handed to Wijha',
-    `Confirm that <strong>${name}</strong>'s order (${orderNum}) has been handed to the Wijha courier for delivery?`,
-    'confirm',
-    async () => {
+function markShipped(sid,num,name) {
+  showModal('Handed to Wijha',
+    `Confirm <strong>${name}</strong>'s order (${num}) has been handed to Wijha courier?`,
+    'confirm', async ()=>{
       try {
-        await updateRecord(sid, {
-          stage: 'in_delivery',
-          shipped_at: new Date().toISOString()
-        });
-        await addOrderNote(sid, `🚚 Order handed to Wijha courier on ${new Date().toLocaleDateString('en-EG')}.`);
-        showToast(`${orderNum} — Moved to In Delivery ✓`, 'success');
+        await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
+        await addOrderNote(sid,`🚚 Handed to Wijha courier on ${new Date().toLocaleDateString('en-EG')}.`);
+        showToast(`${num} — In Delivery ✓`,'success');
         loadAll();
-      } catch(e) {
-        showToast('Error: ' + e.message, 'error');
-      }
-    }
-  );
+      } catch(e){ showToast('Error: '+e.message,'error'); }
+    });
 }
 
-function markCollected(sid, orderNum, name, price) {
-  showModal(
-    'Mark as Collected & Paid',
-    `Confirm that <strong>${name}</strong>'s order (${orderNum}) has been delivered and EGP ${price.toLocaleString()} collected by the courier? This will archive the order as Paid on Shopify.`,
-    'confirm',
-    async () => {
+function markCollected(sid,num,name,price) {
+  showModal('Mark Collected & Paid',
+    `Confirm <strong>${name}</strong>'s order (${num}) — EGP ${price.toLocaleString()} collected by courier?<br>This archives the order as Paid on Shopify.`,
+    'confirm', async ()=>{
       try {
-        await updateRecord(sid, {
-          stage: 'collected',
-          collected_at: new Date().toISOString()
-        });
-        // Mark as paid on Shopify
-        try {
-          await markOrderPaid(sid);
-        } catch(e) {
-          // Transaction might fail if already processed — log but continue
-          console.warn('Transaction warning:', e.message);
-        }
-        await addOrderNote(sid, `💰 COD collected and paid on ${new Date().toLocaleDateString('en-EG')}. Order archived.`);
-        showToast(`${orderNum} — Collected & archived ✓`, 'success');
+        await updateRecord(sid,{stage:'collected',collected_at:new Date().toISOString()});
+        try { await markOrderPaid(sid); } catch(e){ console.warn('Transaction:',e.message); }
+        await addOrderNote(sid,`💰 COD collected on ${new Date().toLocaleDateString('en-EG')}. Archived.`);
+        showToast(`${num} — Collected & archived ✓`,'success');
         loadAll();
-      } catch(e) {
-        showToast('Error: ' + e.message, 'error');
-      }
-    }
-  );
+      } catch(e){ showToast('Error: '+e.message,'error'); }
+    });
 }
 
-function cancelOrder(sid, orderNum, name) {
-  showModal(
-    'Cancel Order',
-    `Cancel <strong>${name}</strong>'s order (${orderNum})? Inventory will be restocked automatically. This cannot be undone.`,
-    'danger',
-    async () => {
+function cancelOrder(sid,num,name) {
+  showModal('Cancel Order',
+    `Cancel <strong>${name}</strong>'s order (${num})?<br>Inventory will be restocked. <strong>This cannot be undone.</strong>`,
+    'danger', async ()=>{
       try {
         await cancelShopifyOrder(sid);
-        await updateRecord(sid, {
-          stage: 'cancelled',
-          cancelled_at: new Date().toISOString()
-        });
-        showToast(`${orderNum} — Cancelled & restocked ✓`, 'info');
+        await updateRecord(sid,{stage:'cancelled',cancelled_at:new Date().toISOString()});
+        showToast(`${num} — Cancelled & restocked ✓`,'info');
         loadAll();
-      } catch(e) {
-        showToast('Error: ' + e.message, 'error');
-      }
-    }
-  );
+      } catch(e){ showToast('Error: '+e.message,'error'); }
+    });
 }
 
 function toggleNote(sid) {
-  const el = document.getElementById('note-' + sid);
+  const el=document.getElementById('note-'+sid);
   el.classList.toggle('open');
-  if (el.classList.contains('open')) {
-    document.getElementById('noteinput-' + sid).focus();
-  }
+  if(el.classList.contains('open')) document.getElementById('ni-'+sid).focus();
 }
 
 async function saveNote(sid) {
-  const input = document.getElementById('noteinput-' + sid);
-  const note = input.value.trim();
-  if (!note) return;
+  const inp=document.getElementById('ni-'+sid);
+  const note=inp.value.trim();
+  if(!note) return;
   try {
-    await updateRecord(sid, { notes: note });
-    await addOrderNote(sid, note);
-    showToast('Note saved ✓', 'success');
-    document.getElementById('note-' + sid).classList.remove('open');
-    input.value = '';
+    await updateRecord(sid,{notes:note});
+    await addOrderNote(sid,note);
+    showToast('Note saved ✓','success');
+    document.getElementById('note-'+sid).classList.remove('open');
+    inp.value='';
     loadAll();
-  } catch(e) {
-    showToast('Error saving note: ' + e.message, 'error');
-  }
+  } catch(e){ showToast('Error: '+e.message,'error'); }
 }
 
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════
 // MODAL
-// ═══════════════════════════════════════════════
-function showModal(title, desc, type, onConfirm) {
-  document.getElementById('modal-title').textContent = title;
-  document.getElementById('modal-desc').innerHTML = desc;
-  const btn = document.getElementById('modal-confirm-btn');
-  btn.className = `modal-btn ${type}`;
-  btn.textContent = type === 'danger' ? 'Cancel Order' : 'Confirm';
-  pendingAction = onConfirm;
+// ═══════════════════════════════
+function showModal(title,desc,type,onConfirm) {
+  document.getElementById('modal-title').textContent=title;
+  document.getElementById('modal-desc').innerHTML=desc;
+  const btn=document.getElementById('modal-confirm-btn');
+  btn.className=`modal-btn ${type}`;
+  btn.textContent=type==='danger'?'Yes, Cancel Order':'Confirm';
+  pendingAction=onConfirm;
   document.getElementById('modal-overlay').classList.add('open');
 }
+function closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); pendingAction=null; }
+function modalConfirm(){ closeModal(); if(pendingAction) pendingAction(); }
+document.getElementById('modal-overlay').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
 
-function closeModal() {
-  document.getElementById('modal-overlay').classList.remove('open');
-  pendingAction = null;
-}
-
-function modalConfirm() {
-  closeModal();
-  if (pendingAction) pendingAction();
-}
-
-document.getElementById('modal-overlay').addEventListener('click', function(e) {
-  if (e.target === this) closeModal();
-});
-
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════
 // TOAST
-// ═══════════════════════════════════════════════
-function showToast(msg, type = 'info') {
-  const c = document.getElementById('toast-container');
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  const icons = { success: '✓', error: '✕', info: 'ℹ' };
-  t.innerHTML = `<span>${icons[type] || 'ℹ'}</span> ${msg}`;
+// ═══════════════════════════════
+function showToast(msg,type='info') {
+  const c=document.getElementById('toast-container');
+  const t=document.createElement('div');
+  t.className=`toast ${type}`;
+  t.innerHTML=`<span>${{success:'✓',error:'✕',info:'ℹ'}[type]||'ℹ'}</span> ${msg}`;
   c.appendChild(t);
-  setTimeout(() => t.remove(), 4000);
+  setTimeout(()=>t.remove(),4000);
 }
 
-// ═══════════════════════════════════════════════
-// UTILS
-// ═══════════════════════════════════════════════
-function formatDate(d) {
-  return new Date(d).toLocaleDateString('en-EG', { day: 'numeric', month: 'short', year: 'numeric' });
-}
+function formatDate(d){ return new Date(d).toLocaleDateString('en-EG',{day:'numeric',month:'short',year:'numeric'}); }
 
-// Auto-refresh every 3 minutes
-setInterval(() => { if (currentRole) loadAll(); }, 180000);
+// Auto-refresh every 3 min
+setInterval(()=>{ if(currentRole) loadAll(); },180000);
 </script>
 </body>
 </html>
