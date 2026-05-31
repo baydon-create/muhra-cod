@@ -135,6 +135,19 @@
   .btn-row { display: flex; gap: 0.4rem; }
   .btn-row .btn-action { flex: 1; }
 
+  /* ── SORT / FILTER BAR ── */
+  .control-bar { background: var(--beige-mid); border-bottom: 1px solid var(--border); padding: 0.6rem 1.25rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+  .control-label { font-family: 'DM Mono', monospace; font-size: 0.6rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
+  .control-select { font-family: 'Jost', sans-serif; font-size: 0.75rem; color: var(--text-primary); background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.6rem; cursor: pointer; outline: none; transition: border-color 0.2s; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a89880' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.5rem center; padding-right: 1.6rem; }
+  .control-select:focus { border-color: var(--gold); }
+  .control-divider { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+  .filter-chip { font-family: 'Jost', sans-serif; font-size: 0.7rem; padding: 0.3rem 0.7rem; border-radius: 20px; border: 1px solid var(--border); background: #fff; color: var(--text-secondary); cursor: pointer; transition: all 0.18s; white-space: nowrap; }
+  .filter-chip.active { background: var(--brown); color: var(--beige); border-color: var(--brown); }
+  .filter-chip.danger-chip.active { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .control-search { font-family: 'Jost', sans-serif; font-size: 0.75rem; color: var(--text-primary); background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.7rem; outline: none; transition: border-color 0.2s, width 0.2s; width: 130px; }
+  .control-search:focus { border-color: var(--gold); width: 175px; }
+  .result-count { font-family: 'DM Mono', monospace; font-size: 0.62rem; color: var(--text-muted); margin-left: auto; white-space: nowrap; }
+
   /* ── PHONE ROW ── */
   .phone-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.6rem; }
   .phone-call { font-family: 'DM Mono', monospace; font-size: 0.75rem; color: var(--brown); text-decoration: none; font-weight: 500; display: flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.65rem; background: var(--beige-mid); border: 1px solid var(--border); border-radius: 20px; transition: all 0.2s; }
@@ -278,6 +291,27 @@
     </button>
   </div>
 
+  <!-- SORT / FILTER BAR -->
+  <div class="control-bar">
+    <span class="control-label">Sort</span>
+    <select class="control-select" id="sort-select" onchange="applyControls()">
+      <option value="date_asc">Oldest first</option>
+      <option value="date_desc">Newest first</option>
+      <option value="price_desc">Highest value</option>
+      <option value="price_asc">Lowest value</option>
+      <option value="expiry_asc">Expiring soonest</option>
+      <option value="name_asc">Name A–Z</option>
+    </select>
+    <div class="control-divider"></div>
+    <span class="control-label">Filter</span>
+    <button class="filter-chip danger-chip" id="chip-expiring" onclick="toggleChip('expiring')">⚠ Expiring</button>
+    <button class="filter-chip" id="chip-high" onclick="toggleChip('high')">↑ High value</button>
+    <button class="filter-chip" id="chip-today" onclick="toggleChip('today')">Today</button>
+    <div class="control-divider"></div>
+    <input class="control-search" id="search-input" placeholder="Search name / order…" oninput="applyControls()">
+    <span class="result-count" id="result-count"></span>
+  </div>
+
   <div class="pipeline" id="pipeline">
     <div class="loading-state">
       <div class="spinner"></div>
@@ -316,6 +350,8 @@ let currentRole   = null;
 let pendingAction = null;
 let pinBuffer     = '';
 let activeTab     = 'awaiting_deposit';
+let allMerged     = [];   // full dataset cached after load
+let activeChips   = new Set(); // active filter chips
 
 // ─────────────────────────────────────────
 // PIN
@@ -483,8 +519,9 @@ async function loadAll() {
       });
     }
 
-    renderPipeline(merged);
+    allMerged = merged;
     updateStats(merged);
+    applyControls();
   } catch(e) {
     console.error(e);
     showToast('Failed to load: '+e.message, 'error');
@@ -493,6 +530,79 @@ async function loadAll() {
   btn.classList.remove('spinning');
 }
 
+// ─────────────────────────────────────────
+// SORT / FILTER / SEARCH
+// ─────────────────────────────────────────
+function toggleChip(name) {
+  if (activeChips.has(name)) activeChips.delete(name);
+  else activeChips.add(name);
+  document.getElementById('chip-'+name).classList.toggle('active', activeChips.has(name));
+  applyControls();
+}
+
+function applyControls() {
+  if (!allMerged.length) return;
+  const sort   = document.getElementById('sort-select').value;
+  const search = (document.getElementById('search-input').value || '').toLowerCase().trim();
+
+  let filtered = allMerged.filter(({order, rec}) => {
+    // Search filter
+    if (search) {
+      const num  = (rec.order_number||'').toLowerCase();
+      const name = (rec.customer_name||'').toLowerCase();
+      if (!num.includes(search) && !name.includes(search)) return false;
+    }
+    // Chip: expiring (awaiting_deposit orders with ≤2 days left)
+    if (activeChips.has('expiring')) {
+      const created = new Date(rec.created_at_shopify||(order?order.created_at:Date.now()));
+      const daysLeft = 7 - Math.floor((Date.now()-created)/86400000);
+      if (!(rec.stage==='awaiting_deposit' && daysLeft<=2)) return false;
+    }
+    // Chip: high value (≥ 1000 EGP)
+    if (activeChips.has('high')) {
+      const price = parseFloat(rec.total_price||(order?order.total_price:0)||0);
+      if (price < 1000) return false;
+    }
+    // Chip: today (ordered today)
+    if (activeChips.has('today')) {
+      const created = new Date(rec.created_at_shopify||(order?order.created_at:Date.now()));
+      const today   = new Date();
+      if (created.toDateString() !== today.toDateString()) return false;
+    }
+    return true;
+  });
+
+  // Sort
+  filtered.sort((a, b) => {
+    const priceA = parseFloat(a.rec.total_price||(a.order?a.order.total_price:0)||0);
+    const priceB = parseFloat(b.rec.total_price||(b.order?b.order.total_price:0)||0);
+    const dateA  = new Date(a.rec.created_at_shopify||(a.order?a.order.created_at:0));
+    const dateB  = new Date(b.rec.created_at_shopify||(b.order?b.order.created_at:0));
+    const nameA  = (a.rec.customer_name||'').toLowerCase();
+    const nameB  = (b.rec.customer_name||'').toLowerCase();
+    const daysLeftA = 7 - Math.floor((Date.now()-dateA)/86400000);
+    const daysLeftB = 7 - Math.floor((Date.now()-dateB)/86400000);
+    switch(sort) {
+      case 'date_asc':    return dateA - dateB;
+      case 'date_desc':   return dateB - dateA;
+      case 'price_desc':  return priceB - priceA;
+      case 'price_asc':   return priceA - priceB;
+      case 'expiry_asc':  return daysLeftA - daysLeftB;
+      case 'name_asc':    return nameA.localeCompare(nameB);
+      default:            return dateA - dateB;
+    }
+  });
+
+  // Result count
+  const total = allMerged.length;
+  const shown = filtered.length;
+  document.getElementById('result-count').textContent =
+    shown < total ? `${shown} of ${total}` : `${total} orders`;
+
+  renderPipeline(filtered);
+}
+
+// ─────────────────────────────────────────
 // ─────────────────────────────────────────
 // RENDER
 // ─────────────────────────────────────────
