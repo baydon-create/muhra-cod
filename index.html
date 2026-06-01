@@ -211,17 +211,42 @@
   ::-webkit-scrollbar{width:5px;height:5px}
   ::-webkit-scrollbar-thumb{background:var(--beige-dark);border-radius:3px}
 
+  /* ITEMS POPUP */
+  .items-btn{font-family:'DM Mono',monospace;font-size:.68rem;color:var(--brown);background:var(--beige-mid);border:1px solid var(--border);border-radius:6px;padding:.2rem .55rem;cursor:pointer;margin-bottom:.6rem;display:inline-flex;align-items:center;gap:.3rem;transition:all .2s}
+  .items-btn:hover{background:var(--brown);color:var(--beige)}
+  .items-popup-overlay{position:fixed;inset:0;background:rgba(42,31,23,.55);backdrop-filter:blur(3px);z-index:600;display:none;align-items:flex-end;justify-content:center;padding:0}
+  .items-popup-overlay.open{display:flex}
+  .items-popup{background:#fff;border-radius:20px 20px 0 0;padding:1.5rem 1.25rem 2rem;width:100%;max-width:520px;max-height:70vh;overflow-y:auto;animation:slideUp .25s ease}
+  @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  .items-popup-handle{width:40px;height:4px;background:var(--beige-dark);border-radius:2px;margin:0 auto 1.25rem}
+  .items-popup-title{font-size:.8rem;font-weight:600;color:var(--text-primary);margin-bottom:.1rem}
+  .items-popup-sub{font-size:.68rem;color:var(--text-muted);font-family:'DM Mono',monospace;margin-bottom:1rem}
+  .items-popup-list{display:flex;flex-direction:column;gap:.6rem}
+  .item-row{display:flex;align-items:center;justify-content:space-between;padding:.6rem .75rem;background:var(--beige-mid);border-radius:8px;gap:.5rem}
+  .item-name{font-size:.78rem;color:var(--text-primary);flex:1;line-height:1.4}
+  .item-qty{font-family:'DM Mono',monospace;font-size:.72rem;color:var(--gold);white-space:nowrap;font-weight:500}
+  .item-price{font-family:'DM Mono',monospace;font-size:.7rem;color:var(--text-muted);white-space:nowrap}
+  .items-popup-total{display:flex;justify-content:space-between;align-items:center;margin-top:1rem;padding:.65rem .75rem;background:var(--brown);border-radius:8px}
+  .items-popup-total span{font-family:'DM Mono',monospace;font-size:.75rem;color:var(--beige)}
+  .items-popup-total strong{font-size:.9rem;color:var(--gold)}
+
   @media(max-width:1200px){.pipeline{grid-template-columns:repeat(3,1fr)}}
   @media(max-width:900px){
-    .tab-bar{display:block}
+    .tab-bar{display:block;position:sticky;top:56px;z-index:90}
+    .control-bar{position:sticky;top:calc(56px + 41px);z-index:89}
+    .view-only-bar.visible{position:sticky;top:56px;z-index:91}
     .pipeline{grid-template-columns:1fr;padding:1rem;gap:.875rem}
     .col{display:none}
     .col.active{display:flex}
     .col-header{position:static}
+    .stats-bar{display:none}
+    .items-popup-overlay{align-items:flex-end}
   }
   @media(min-width:901px){
     .pipeline{grid-template-columns:repeat(6,1fr)}
     .col{display:flex!important}
+    .items-popup{border-radius:16px;margin:auto;max-height:80vh}
+    .items-popup-overlay{align-items:center;padding:1rem}
   }
 </style>
 </head>
@@ -312,11 +337,14 @@
     </select>
     <div class="control-divider"></div>
     <span class="control-label">Filter</span>
-    <button class="filter-chip danger-chip" id="chip-expiring" onclick="toggleChip('expiring')">⚠ Expiring</button>
-    <button class="filter-chip" id="chip-high"    onclick="toggleChip('high')">↑ High value</button>
-    <button class="filter-chip" id="chip-today"   onclick="toggleChip('today')">Today</button>
-    <button class="filter-chip" id="chip-hold"    onclick="toggleChip('hold')">🔧 On Hold</button>
-    <button class="filter-chip" id="chip-returns" onclick="toggleChip('returns')">🔄 Returning</button>
+    <select class="control-select" id="filter-select" onchange="applyControls()">
+      <option value="all">All orders</option>
+      <option value="expiring">⚠ Expiring soon (≤2 days)</option>
+      <option value="high">↑ High value (≥ EGP 1000)</option>
+      <option value="today">📅 Placed today</option>
+      <option value="hold">🔧 On Hold</option>
+      <option value="returns">🔄 Returning</option>
+    </select>
     <div class="control-divider"></div>
     <input class="control-search" id="search-input" placeholder="Search name / order…" oninput="applyControls()">
     <span class="result-count" id="result-count"></span>
@@ -326,6 +354,20 @@
     <div class="loading-state">
       <div class="spinner"></div>
       <span style="font-family:'DM Mono',monospace;font-size:.72rem;letter-spacing:.05em">Loading orders...</span>
+    </div>
+  </div>
+</div>
+
+<!-- ITEMS POPUP -->
+<div class="items-popup-overlay" id="items-popup-overlay" onclick="closeItemsPopup(event)">
+  <div class="items-popup">
+    <div class="items-popup-handle"></div>
+    <div class="items-popup-title" id="items-popup-title">Order Items</div>
+    <div class="items-popup-sub"  id="items-popup-sub"></div>
+    <div class="items-popup-list" id="items-popup-list"></div>
+    <div class="items-popup-total">
+      <span>Order Total</span>
+      <strong id="items-popup-total">—</strong>
     </div>
   </div>
 </div>
@@ -362,7 +404,6 @@ let pendingAction = null;
 let pinBuffer     = '';
 let activeTab     = 'awaiting_deposit';
 let allMerged     = [];
-let activeChips   = new Set();
 
 // ════════════════════════════════════════
 // PIN
@@ -501,24 +542,19 @@ async function loadAll(){
 // ════════════════════════════════════════
 // SORT / FILTER / SEARCH
 // ════════════════════════════════════════
-function toggleChip(name){
-  if(activeChips.has(name)) activeChips.delete(name); else activeChips.add(name);
-  document.getElementById('chip-'+name).classList.toggle('active',activeChips.has(name));
-  applyControls();
-}
-
 function applyControls(){
   if(!allMerged.length) return;
   const sort  =document.getElementById('sort-select').value;
+  const filter=document.getElementById('filter-select').value;
   const search=(document.getElementById('search-input').value||'').toLowerCase().trim();
 
   let filtered=allMerged.filter(({order,rec})=>{
     if(search){ const n=(rec.order_number||'').toLowerCase(),nm=(rec.customer_name||'').toLowerCase(); if(!n.includes(search)&&!nm.includes(search)) return false; }
-    if(activeChips.has('expiring')){ const created=new Date(rec.created_at_shopify||(order?order.created_at:Date.now())); const dl=7-Math.floor((Date.now()-created)/86400000); if(!(rec.stage==='awaiting_deposit'&&dl<=2)) return false; }
-    if(activeChips.has('high')){ const p=parseFloat(rec.total_price||(order?order.total_price:0)||0); if(p<1000) return false; }
-    if(activeChips.has('today')){ const created=new Date(rec.created_at_shopify||(order?order.created_at:Date.now())); if(created.toDateString()!==new Date().toDateString()) return false; }
-    if(activeChips.has('hold'))    { if(rec.stage!=='on_hold')    return false; }
-    if(activeChips.has('returns')) { if(rec.stage!=='returning')  return false; }
+    if(filter==='expiring'){ const created=new Date(rec.created_at_shopify||(order?order.created_at:Date.now())); const dl=7-Math.floor((Date.now()-created)/86400000); if(!(rec.stage==='awaiting_deposit'&&dl<=2)) return false; }
+    if(filter==='high'){ const p=parseFloat(rec.total_price||(order?order.total_price:0)||0); if(p<1000) return false; }
+    if(filter==='today'){ const created=new Date(rec.created_at_shopify||(order?order.created_at:Date.now())); if(created.toDateString()!==new Date().toDateString()) return false; }
+    if(filter==='hold')    { if(rec.stage!=='on_hold')   return false; }
+    if(filter==='returns') { if(rec.stage!=='returning') return false; }
     return true;
   });
 
@@ -587,8 +623,9 @@ function renderCard(stage,order,rec,isOp){
   const created=new Date(rec.created_at_shopify||(order?order.created_at:Date.now()));
   const daysOld=Math.floor((Date.now()-created)/86400000);
   const daysLeft=7-daysOld;
-  const items=order?(order.line_items||[]).slice(0,2).map(i=>`${i.name} ×${i.quantity}`).join(', ')+((order.line_items||[]).length>2?` +${order.line_items.length-2} more`:''):'';
-  const note =rec.notes||(order?order.note:'')||'';
+  const itemCount = order ? (order.line_items||[]).length : 0;
+  const itemsPreview = order ? (order.line_items||[]).slice(0,1).map(i=>`${i.name} ×${i.quantity}`).join('') + (itemCount>1?` +${itemCount-1} more`:'') : '';
+  const itemsDataAttr = order ? encodeURIComponent(JSON.stringify((order.line_items||[]).map(i=>({name:i.name,qty:i.quantity,price:i.price})))) : '';  const note =rec.notes||(order?order.note:'')||'';
   const phone=order?(order.billing_address?.phone||order.shipping_address?.phone||''):'';
   const attempts=rec.delivery_attempts||0;
   const isUrgent=stage==='awaiting_deposit'&&daysLeft<=1;
@@ -684,7 +721,7 @@ function renderCard(stage,order,rec,isOp){
       <span class="order-price">EGP ${price.toLocaleString('en-EG',{minimumFractionDigits:2})}</span>
       <span class="order-date">${fmtDate(created)}</span>
     </div>
-    ${items?`<div class="order-items">${items}</div>`:''}
+    ${itemsPreview?`<button class="items-btn" onclick="openItemsPopup('${esc(num)}','${esc(name)}',${price},'${itemsDataAttr}')">📦 ${itemsPreview}</button>`:''}
     ${badges}
     ${phone?`<div class="phone-row">
       <a class="phone-call" href="tel:+${normalizeEgPhone(phone).replace(/^00/,'')}">${normalizeEgPhone(phone)}</a>
@@ -721,6 +758,30 @@ function updateStats(merged){
 
 function renderError(){
   document.getElementById('pipeline').innerHTML=`<div class="loading-state" style="grid-column:1/-1"><div style="font-size:2rem">⚠</div><span style="font-family:'DM Mono',monospace;font-size:.72rem;color:var(--danger)">Failed to load. Check console.</span></div>`;
+}
+
+// ════════════════════════════════════════
+// ITEMS POPUP
+// ════════════════════════════════════════
+function openItemsPopup(num, name, total, itemsEncoded){
+  let items=[];
+  try{ items=JSON.parse(decodeURIComponent(itemsEncoded)); }catch(e){}
+  document.getElementById('items-popup-title').textContent=`${num} — ${name}`;
+  document.getElementById('items-popup-sub').textContent=`${items.length} item${items.length!==1?'s':''}`;
+  document.getElementById('items-popup-total').textContent=`EGP ${parseFloat(total).toLocaleString('en-EG',{minimumFractionDigits:2})}`;
+  document.getElementById('items-popup-list').innerHTML=items.map(i=>`
+    <div class="item-row">
+      <span class="item-name">${i.name}</span>
+      <span class="item-qty">×${i.qty}</span>
+      <span class="item-price">EGP ${(parseFloat(i.price)*i.qty).toLocaleString('en-EG',{minimumFractionDigits:2})}</span>
+    </div>`).join('');
+  document.getElementById('items-popup-overlay').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeItemsPopup(e){
+  if(e && e.target!==document.getElementById('items-popup-overlay')) return;
+  document.getElementById('items-popup-overlay').classList.remove('open');
+  document.body.style.overflow='';
 }
 
 // ════════════════════════════════════════
