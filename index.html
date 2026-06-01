@@ -599,9 +599,9 @@ async function getOrders(){
 }
 
 async function cancelShopifyOrder(orderId){
-  // NOTE: 'restock' param deprecated in API 2022-10+. Shopify auto-restocks unfulfilled inventory on cancel.
   console.log('[cancel] Shopify cancel call for order', orderId);
-  const result=await shopifyFetch(`orders/${orderId}/cancel.json`,'POST',{reason:'customer'});
+  // Send an empty object to bypass strict refund payload validation
+  const result=await shopifyFetch(`orders/${orderId}/cancel.json`,'POST',{});
   console.log('[cancel] Shopify response:', result);
   return result;
 }
