@@ -720,6 +720,9 @@ async function loadAll(){
         }
       }
 
+      // Skip already-cancelled records — don't re-surface them
+      if(rec.stage==='cancelled') continue;
+
       // Auto-advance fulfilled → in_delivery
       if(order.fulfillment_status==='fulfilled' && rec.stage==='confirmed'){
         await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
@@ -1470,11 +1473,22 @@ function confirmReturned(sid,num,name){
 // ════════════════════════════════════════
 function cancelOrder(sid,num,name,reason){
   showModal('Cancel Order',
-    `Cancel <strong>${name}</strong>'s order (${num})?<br>Inventory restocked immediately. <strong>Cannot be undone.</strong>`,
+    `Cancel <strong>${name}</strong>'s order (${num})?<br>Inventory restocked immediately on Shopify. <strong>Cannot be undone.</strong>`,
     'danger',null,async()=>{
       try{
-        await cancelShopifyOrder(sid);
+        // Mark cancelled in Supabase first so it disappears from the board immediately
         await updateRecord(sid,{stage:'cancelled',cancelled_at:new Date().toISOString(),notes:reason||'Cancelled'});
+        // Then try to cancel on Shopify — if this fails (e.g. already cancelled) we still remove from board
+        try{
+          await cancelShopifyOrder(sid);
+          await addOrderNote(sid,`❌ Order cancelled by operator on ${fmtDate(new Date())}. Reason: ${reason||'Cancelled'}`);
+        }catch(shopifyErr){
+          // Shopify cancel failed (may already be cancelled, or API restriction)
+          // Still show success since board is cleaned up — log for admin awareness
+          console.warn('Shopify cancel API error (order may already be cancelled):', shopifyErr.message);
+          showToast(`${num} — Removed from board. Check Shopify manually.`,'warn');
+          loadAll(); return;
+        }
         showToast(`${num} — Cancelled & restocked ✓`,'info'); loadAll();
       }catch(e){showToast('Error: '+e.message,'error');}
     });
