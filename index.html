@@ -598,32 +598,47 @@ async function getOrders(){
   return all.filter(o=>{ if(seen.has(o.id))return false; seen.add(o.id); return true; });
 }
 
-async function cancelShopifyOrder(orderId){
-  console.log('[cancel] Shopify cancel call for order', orderId);
-  const result = await shopifyFetch(`orders/${orderId}/cancel.json`, 'POST', {});
-  console.log('[cancel] Shopify response:', result);
-  return result;
-}
-async function restockShopifyOrder(orderId){
-  console.log('[restock] fetching line items for', orderId);
-  const data = await shopifyFetch(`orders/${orderId}.json?fields=id,line_items`, 'GET');
-  const lineItems = data.order.line_items;
-  const refundLineItems = lineItems.map(item => ({
-    line_item_id: item.id,
-    quantity: item.quantity,
-    restock_type: 'return',
-    location_id: 76527337523
+async function cancelShopifyOrder(orderId) {
+  console.log('[cancel] Shopify restock & cancel call for', orderId);
+  
+  // 1. Get the line items from your existing local dashboard cache
+  const order = orderMap[orderId];
+  if (!order || !order.line_items) {
+      throw new Error("Order data not found. Please refresh the page and try again.");
+  }
+
+  // 2. Prepare the items for restocking using 'cancel' restock type
+  const refundLineItems = order.line_items.map(item => ({
+      line_item_id: item.id,
+      quantity: item.quantity,
+      restock_type: "cancel" 
   }));
-  const result = await shopifyFetch(`orders/${orderId}/refunds.json`, 'POST', {
-    refund: {
-      refund_line_items: refundLineItems
-    }
+
+  // 3. Ask Shopify to calculate the restock (this automatically finds the correct location_id)
+  console.log('[cancel] Calculating restock locations...');
+  const calcResponse = await shopifyFetch(`orders/${orderId}/refunds/calculate.json`, 'POST', {
+      refund: { refund_line_items: refundLineItems }
   });
-  console.log('[restock] result:', result);
+
+  // 4. Submit the formal $0 refund to restock the inventory securely
+  console.log('[cancel] Executing restock...');
+  await shopifyFetch(`orders/${orderId}/refunds.json`, 'POST', {
+      refund: calcResponse.refund
+  });
+
+  // 5. Update the order status to Canceled
+  console.log('[cancel] Cancelling order status...');
+  const result = await shopifyFetch(`orders/${orderId}/cancel.json`, 'POST', {});
   return result;
 }
-async function addOrderNote(orderId,note){ return shopifyFetch(`orders/${orderId}.json`,'PUT',{order:{id:Number(orderId),note}}); }
-async function markOrderPaid(orderId){ return shopifyFetch(`orders/${orderId}/transactions.json`,'POST',{transaction:{kind:'capture',status:'success'}}); }
+
+async function addOrderNote(orderId, note) { 
+  return shopifyFetch(`orders/${orderId}.json`, 'PUT', { order: { id: Number(orderId), note } }); 
+}
+
+async function markOrderPaid(orderId) { 
+  return shopifyFetch(`orders/${orderId}/transactions.json`, 'POST', { transaction: { kind: 'capture', status: 'success' } }); 
+}
 
 // Load ALL products once into cache when editor opens, then filter locally
 async function loadAllProductsToCache(){
