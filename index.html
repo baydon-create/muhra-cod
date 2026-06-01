@@ -616,7 +616,6 @@ async function restockShopifyOrder(orderId){
   }));
   const result = await shopifyFetch(`orders/${orderId}/refunds.json`, 'POST', {
     refund: {
-      restock: true,
       refund_line_items: refundLineItems
     }
   });
