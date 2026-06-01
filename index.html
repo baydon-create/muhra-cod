@@ -530,6 +530,7 @@ let editorOrderObj   = null;  // full shopify order object
 let editorItems      = [];    // [{line_item_id, variant_id, title, variant_title, quantity, price, removed, isNew}]
 let editorNote       = '';
 let allVariantsCache = [];
+let orderMap = {};  // sid → full shopify order object, populated during render
 let editorDiscount  = 0;   // flat discount EGP
 let editorShipping  = 0;   // shipping override EGP
 let variantsCacheLoaded = false;
@@ -822,6 +823,9 @@ const STAGE_META={
 };
 
 function renderPipeline(merged){
+  // Build order lookup map so we don't inject full JSON into onclick attributes
+  orderMap={};
+  merged.forEach(({order,rec})=>{ if(order) orderMap[String(rec.shopify_order_id)]=order; });
   const stages={awaiting_deposit:[],confirmed:[],in_delivery:[],collected:[],returning:[],on_hold:[]};
   merged.forEach(item=>{ const s=item.rec.stage||'awaiting_deposit'; if(stages[s]) stages[s].push(item); });
   const isOp=currentRole==='operator';
@@ -881,7 +885,6 @@ function renderCard(stage,order,rec,isOp){
 
   const esc=s=>String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
   const shopifyLink=`https://muhrastore-2.myshopify.com/admin/orders/${sid}`;
-  const orderEncoded=order?encodeURIComponent(JSON.stringify(order)):'';
 
   let actions='';
   if(isOp){
@@ -891,7 +894,7 @@ function renderCard(stage,order,rec,isOp){
         actions=`
           <button class="btn-action btn-ship" onclick="markShipped('${esc(sid)}','${esc(num)}','${esc(name)}')">🚚 Hand to Wijha Courier</button>
           <div class="btn-row">
-            <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}','${esc(num)}','${esc(name)}','${orderEncoded}')">✏ Edit Order</button>
+            <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order</button>
             <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — customer request')">✕ Cancel</button>
           </div>
           <div class="note-area" id="note-${sid}">
@@ -903,7 +906,7 @@ function renderCard(stage,order,rec,isOp){
         actions=`
           <button class="btn-action btn-confirm" onclick="confirmDeposit('${esc(sid)}','${esc(num)}','${esc(name)}')">✓ Deposit Received</button>
           <div class="btn-row">
-            <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}','${esc(num)}','${esc(name)}','${orderEncoded}')">✏ Edit Order</button>
+            <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order</button>
             <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — no deposit')">✕ Cancel</button>
           </div>
           <div class="note-area" id="note-${sid}">
@@ -917,7 +920,7 @@ function renderCard(stage,order,rec,isOp){
       actions=`
         <button class="btn-action btn-ship" ${shipDisabled} onclick="markShipped('${esc(sid)}','${esc(num)}','${esc(name)}')">🚚 Hand to Wijha Courier</button>
         <div class="btn-row">
-          <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}','${esc(num)}','${esc(name)}','${orderEncoded}')">✏ Edit Order</button>
+          <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order</button>
           ${isHold
             ?`<button class="btn-action btn-orange" onclick="clearHold('${esc(sid)}','${esc(num)}')">✓ Clear Hold</button>`
             :`<button class="btn-action btn-orange" onclick="flagEdit('${esc(sid)}','${esc(num)}','${esc(name)}')">🔧 Flag for Edit</button>`}
@@ -939,7 +942,7 @@ function renderCard(stage,order,rec,isOp){
           <button class="btn-action btn-cancel" onclick="rejectOrder('${esc(sid)}','${esc(num)}','${esc(name)}')">✗ Rejected</button>
         </div>
         <div class="btn-row">
-          <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}','${esc(num)}','${esc(name)}','${orderEncoded}')">✏ Edit Order</button>
+          <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order</button>
           <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Note</button>
         </div>
         <div class="note-area" id="note-${sid}">
@@ -956,7 +959,7 @@ function renderCard(stage,order,rec,isOp){
         <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Note</button>`;
     } else if(stage==='on_hold'){
       actions=`
-        <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}','${esc(num)}','${esc(name)}','${orderEncoded}')">✏ Edit Order in Dashboard</button>
+        <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order in Dashboard</button>
         <a class="btn-action btn-shopify" href="${shopifyLink}" target="_blank">🔗 Open in Shopify Admin</a>
         <button class="btn-action btn-ship" onclick="resolveHoldAndShip('${esc(sid)}','${esc(num)}','${esc(name)}')">✓ Resolved — Hand to Wijha</button>
         <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — edit requested')">✕ Cancel Order</button>`;
@@ -1045,9 +1048,12 @@ function closeItemsPopup(e){
 // ════════════════════════════════════════
 // ORDER EDITOR
 // ════════════════════════════════════════
-function openEditor(sid, num, name, orderEncoded){
-  let order=null;
-  try{ order=JSON.parse(decodeURIComponent(orderEncoded)); }catch(e){}
+function openEditor(sid){
+  const merged=allMerged.find(m=>String(m.rec.shopify_order_id)===String(sid));
+  const order=merged?merged.order:orderMap[sid]||null;
+  const rec=merged?merged.rec:{};
+  const num=rec.order_number||sid;
+  const name=rec.customer_name||'Unknown';
 
   editorOrderId=sid;
   editorOrderObj=order;
