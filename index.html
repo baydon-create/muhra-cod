@@ -514,7 +514,8 @@ let editorOrderId    = null;  // shopify order id
 let editorOrderObj   = null;  // full shopify order object
 let editorItems      = [];    // [{line_item_id, variant_id, title, variant_title, quantity, price, removed, isNew}]
 let editorNote       = '';
-let productSearchTimer = null;
+let allVariantsCache = [];
+let variantsCacheLoaded = false;
 
 // ════════════════════════════════════════
 // PIN
@@ -583,16 +584,48 @@ async function cancelShopifyOrder(orderId){ return shopifyFetch(`orders/${orderI
 async function addOrderNote(orderId,note){ return shopifyFetch(`orders/${orderId}.json`,'PUT',{order:{id:Number(orderId),note}}); }
 async function markOrderPaid(orderId){ return shopifyFetch(`orders/${orderId}/transactions.json`,'POST',{transaction:{kind:'capture',status:'success'}}); }
 
-// Search products (for order editor) — uses /products.json which may need read_products scope
-// If blocked, we gracefully show the Shopify admin link instead
-async function searchProducts(query){
-  try {
-    const data=await shopifyFetch(`products.json?title=${encodeURIComponent(query)}&limit=10&status=active&fields=id,title,variants,status`);
-    return data.products||[];
-  } catch(e) {
+// Load ALL products once into cache when editor opens, then filter locally
+async function loadAllProductsToCache(){
+  if(variantsCacheLoaded) return;
+  // Paginate through all products (250 per page max)
+  let allProducts=[], page=1, hasMore=true;
+  try{
+    while(hasMore){
+      const data=await shopifyFetch(`products.json?limit=250&status=active&fields=id,title,variants&page=${page}`);
+      const batch=data.products||[];
+      allProducts=[...allProducts,...batch];
+      hasMore=batch.length===250;
+      page++;
+    }
+    allVariantsCache=[];
+    allProducts.forEach(p=>{
+      (p.variants||[]).forEach(v=>{
+        allVariantsCache.push({
+          product_id:   p.id,
+          variant_id:   v.id,
+          title:        p.title,
+          variant_title:v.title&&v.title!=='Default Title'?v.title:'',
+          display:      `${p.title}${v.title&&v.title!=='Default Title'?' — '+v.title:''}`,
+          price:        parseFloat(v.price||0),
+          sku:          v.sku||''
+        });
+      });
+    });
+    variantsCacheLoaded=true;
+  }catch(e){
     if(e.message&&e.message.includes('403')) throw new Error('SCOPE_DENIED');
     throw e;
   }
+}
+
+// Local filter — any word in query must appear anywhere in display name or sku
+function filterVariants(query){
+  if(!query||!query.trim()) return allVariantsCache.slice(0,30);
+  const words=query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return allVariantsCache.filter(v=>{
+    const hay=(v.display+' '+v.sku).toLowerCase();
+    return words.every(w=>hay.includes(w));
+  }).slice(0,20);
 }
 
 // Update line items on Shopify order (using order PUT — edits line_items)
@@ -997,6 +1030,13 @@ function openEditor(sid, num, name, orderEncoded){
 
   editorNote=(order?order.note:'')||'';
 
+  // Pre-load product cache in background so search is instant
+  if(!variantsCacheLoaded){
+    loadAllProductsToCache().catch(e=>{
+      if(e.message==='SCOPE_DENIED') console.warn('read_products scope missing');
+    });
+  }
+
   document.getElementById('editor-title').textContent=`Edit Order ${num}`;
   document.getElementById('editor-subtitle').textContent=name;
   renderEditorBody();
@@ -1056,7 +1096,7 @@ function renderEditorBody(){
     <div class="editor-section">
       <div class="editor-section-title">Add Product</div>
       <div class="product-search-wrap">
-        <input class="product-search-input" id="prod-search-input" placeholder="Search product name…" oninput="onProductSearch(this.value)" autocomplete="off">
+        <input class="product-search-input" id="prod-search-input" placeholder="Type any word to search…" oninput="onProductSearch(this.value)" autocomplete="off">
         <div class="product-search-results" id="prod-search-results"></div>
       </div>
       <a href="https://muhrastore-2.myshopify.com/admin/orders/${editorOrderId}" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:.4rem;margin-top:.6rem;padding:.45rem;background:var(--beige-mid);border:1px solid var(--border);border-radius:8px;font-size:.7rem;color:var(--text-secondary);text-decoration:none;font-family:'Jost',sans-serif;transition:all .2s" onmouseover="this.style.background='var(--brown)';this.style.color='#fff'" onmouseout="this.style.background='var(--beige-mid)';this.style.color='var(--text-secondary)'">
@@ -1088,57 +1128,33 @@ function restoreItem(idx){
   renderEditorBody();
 }
 
-// Product search
+// Product search — instant local filter against pre-loaded cache
 function onProductSearch(val){
-  clearTimeout(productSearchTimer);
   const resultsEl=document.getElementById('prod-search-results');
-  if(!val||val.length<2){ resultsEl.classList.remove('open'); return; }
-  resultsEl.innerHTML='<div class="search-loading">Searching…</div>';
-  resultsEl.classList.add('open');
-  productSearchTimer=setTimeout(()=>doProductSearch(val),400);
+  if(!variantsCacheLoaded){
+    resultsEl.innerHTML='<div class="search-loading">Loading products…</div>';
+    resultsEl.classList.add('open');
+    return;
+  }
+  if(!val||!val.trim()){ resultsEl.classList.remove('open'); return; }
+  const matches=filterVariants(val);
+  renderSearchResults(matches, resultsEl);
 }
 
-async function doProductSearch(query){
-  const resultsEl=document.getElementById('prod-search-results');
-  try{
-    const products=await searchProducts(query);
-    if(!products.length){
-      resultsEl.innerHTML='<div class="search-empty">No products found</div>';
-      return;
-    }
-    // Flatten product → variants
-    const variants=[];
-    products.forEach(p=>{
-      (p.variants||[]).forEach(v=>{
-        variants.push({
-          product_id:p.id,
-          variant_id:v.id,
-          title:`${p.title}${v.title&&v.title!=='Default Title'?' — '+v.title:''}`,
-          variant_title:v.title&&v.title!=='Default Title'?v.title:'',
-          price:parseFloat(v.price||0),
-          sku:v.sku||''
-        });
-      });
-    });
-    resultsEl.innerHTML=variants.slice(0,12).map((v,i)=>`
-      <div class="search-result-item" onclick="addProductToOrder(${i})">
-        <span class="sri-price">EGP ${v.price.toLocaleString('en-EG',{minimumFractionDigits:2})}</span>
-        <div class="sri-name">${v.title}</div>
-        ${v.sku?`<div class="sri-variant">SKU: ${v.sku}</div>`:''}
-      </div>`).join('');
-    resultsEl._variants=variants;
-  }catch(e){
-    if(e.message==='SCOPE_DENIED'||e.message.includes('403')){
-      const adminLink=`https://muhrastore-2.myshopify.com/admin/orders/${editorOrderId}`;
-      resultsEl.innerHTML=`<div class="search-empty" style="padding:1rem;line-height:1.6">
-        <div style="font-size:.75rem;color:var(--danger);margin-bottom:.5rem">⚠ Product search requires Shopify API scope</div>
-        <div style="font-size:.7rem;color:var(--text-muted);margin-bottom:.75rem">Add new items directly in Shopify Admin. Notes and quantity edits still sync from here.</div>
-        <a href="${adminLink}" target="_blank" style="display:inline-block;padding:.4rem .9rem;background:var(--brown);color:#fff;border-radius:8px;font-size:.72rem;text-decoration:none;font-family:'Jost',sans-serif">🔗 Open Order in Shopify Admin</a>
-      </div>`;
-    } else {
-      resultsEl.innerHTML=`<div class="search-empty">Error: ${e.message}</div>`;
-    }
+function renderSearchResults(variants, resultsEl){
+  if(!variants.length){
+    resultsEl.innerHTML='<div class="search-empty">No match — try another word</div>';
+    resultsEl.classList.add('open');
+    return;
   }
+  resultsEl.innerHTML=variants.map((v,i)=>`
+    <div class="search-result-item" onclick="addProductToOrder(${i})">
+      <span class="sri-price">EGP ${v.price.toLocaleString('en-EG',{minimumFractionDigits:2})}</span>
+      <div class="sri-name">${v.display}</div>
+      ${v.sku?`<div class="sri-variant">SKU: ${v.sku}</div>`:''}
+    </div>`).join('');
+  resultsEl._variants=variants;
+  resultsEl.classList.add('open');
 }
 
 function addProductToOrder(variantIndex){
@@ -1154,7 +1170,7 @@ function addProductToOrder(variantIndex){
       line_item_id: null,
       variant_id:   v.variant_id,
       product_id:   v.product_id,
-      title:        v.title,
+      title:        v.display,
       variant_title:v.variant_title,
       quantity:     1,
       price:        v.price,
