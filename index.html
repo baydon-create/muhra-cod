@@ -597,7 +597,13 @@ async function getOrders(){
   return all.filter(o=>{ if(seen.has(o.id))return false; seen.add(o.id); return true; });
 }
 
-async function cancelShopifyOrder(orderId){ return shopifyFetch(`orders/${orderId}/cancel.json`,'POST',{reason:'customer',restock:true}); }
+async function cancelShopifyOrder(orderId){
+  // NOTE: 'restock' param deprecated in API 2022-10+. Shopify auto-restocks unfulfilled inventory on cancel.
+  console.log('[cancel] Shopify cancel call for order', orderId);
+  const result=await shopifyFetch(`orders/${orderId}/cancel.json`,'POST',{reason:'customer'});
+  console.log('[cancel] Shopify response:', result);
+  return result;
+}
 async function addOrderNote(orderId,note){ return shopifyFetch(`orders/${orderId}.json`,'PUT',{order:{id:Number(orderId),note}}); }
 async function markOrderPaid(orderId){ return shopifyFetch(`orders/${orderId}/transactions.json`,'POST',{transaction:{kind:'capture',status:'success'}}); }
 
@@ -668,6 +674,12 @@ async function sbFetch(path,method='GET',body=null){
     body:body?JSON.stringify(body):null
   });
   if(res.status===204||method==='DELETE') return {};
+  // CRITICAL: surface Supabase errors instead of silently parsing them as success
+  if(!res.ok){
+    const errBody=await res.text();
+    console.error(`[supabase] ${method} ${path} failed:`, res.status, errBody);
+    throw new Error(`Supabase ${res.status}: ${errBody}`);
+  }
   return res.json();
 }
 async function getPipelineRecords(){ return sbFetch('cod_pipeline?select=*'); }
@@ -1473,24 +1485,41 @@ function confirmReturned(sid,num,name){
 // ════════════════════════════════════════
 function cancelOrder(sid,num,name,reason){
   showModal('Cancel Order',
-    `Cancel <strong>${name}</strong>'s order (${num})?<br>Inventory restocked immediately on Shopify. <strong>Cannot be undone.</strong>`,
+    `Cancel <strong>${name}</strong>'s order (${num})?<br>Order will be cancelled on Shopify and inventory restocked. <strong>Cannot be undone.</strong>`,
     'danger',null,async()=>{
+      console.log('[cancel] start for', sid, num);
       try{
-        // Mark cancelled in Supabase first so it disappears from the board immediately
-        await updateRecord(sid,{stage:'cancelled',cancelled_at:new Date().toISOString(),notes:reason||'Cancelled'});
-        // Then try to cancel on Shopify — if this fails (e.g. already cancelled) we still remove from board
+        // Step 1: cancel on Shopify FIRST — this is the source of truth
         try{
           await cancelShopifyOrder(sid);
-          await addOrderNote(sid,`❌ Order cancelled by operator on ${fmtDate(new Date())}. Reason: ${reason||'Cancelled'}`);
+          console.log('[cancel] Shopify cancel succeeded for', sid);
         }catch(shopifyErr){
-          // Shopify cancel failed (may already be cancelled, or API restriction)
-          // Still show success since board is cleaned up — log for admin awareness
-          console.warn('Shopify cancel API error (order may already be cancelled):', shopifyErr.message);
-          showToast(`${num} — Removed from board. Check Shopify manually.`,'warn');
+          console.error('[cancel] Shopify cancel FAILED for', sid, shopifyErr.message);
+          showToast(`Shopify error: ${shopifyErr.message}`,'error');
+          return; // stop — do not update Supabase if Shopify refused
+        }
+
+        // Step 2: add a Shopify note (best-effort)
+        try{
+          await addOrderNote(sid,`❌ Cancelled by operator on ${fmtDate(new Date())}. Reason: ${reason||'Cancelled'}`);
+        }catch(noteErr){ console.warn('[cancel] note failed:', noteErr.message); }
+
+        // Step 3: update Supabase so card disappears from the board
+        try{
+          await updateRecord(sid,{stage:'cancelled',cancelled_at:new Date().toISOString(),notes:reason||'Cancelled'});
+          console.log('[cancel] Supabase updated for', sid);
+        }catch(sbErr){
+          console.error('[cancel] Supabase update FAILED for', sid, sbErr.message);
+          showToast(`Shopify cancelled but board not updated: ${sbErr.message}`,'warn');
           loadAll(); return;
         }
-        showToast(`${num} — Cancelled & restocked ✓`,'info'); loadAll();
-      }catch(e){showToast('Error: '+e.message,'error');}
+
+        showToast(`${num} — Cancelled & restocked ✓`,'success');
+        loadAll();
+      }catch(e){
+        console.error('[cancel] unexpected error:', e);
+        showToast('Error: '+e.message,'error');
+      }
     });
 }
 
