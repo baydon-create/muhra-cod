@@ -1558,9 +1558,13 @@ function showModal(title,desc,type,textareaLabel,onConfirm){
   btn.className=`modal-btn ${type}`;
   btn.textContent=type==='danger'?'Confirm & Cancel':type==='orange'?'Confirm':'Confirm';
   pendingAction=onConfirm;
-  // Defer open by one frame so the triggering click event fully finishes
-  // before the overlay backdrop listener activates — prevents immediate self-close
-  setTimeout(()=>document.getElementById('modal-overlay').classList.add('open'), 10);
+  const overlay=document.getElementById('modal-overlay');
+  const confirmBtn=document.getElementById('modal-confirm-btn');
+  // Briefly disable the confirm button so the triggering click event
+  // cannot reach it while the modal is opening — prevents auto-confirm
+  confirmBtn.disabled=true;
+  overlay.classList.add('open');
+  setTimeout(()=>{ confirmBtn.disabled=false; }, 300);
 }
 function closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); pendingAction=null; }
 function modalConfirm(){ closeModal(); if(pendingAction) pendingAction(); }
