@@ -306,6 +306,21 @@
 
 
 
+  /* FINANCIALS EDITOR */
+  .fin-row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.6rem .75rem;background:var(--beige-mid);border-radius:10px;border:1px solid var(--border)}
+  .fin-total-row{background:var(--brown-dark);border-color:transparent}
+  .fin-label{display:flex;align-items:center;gap:.6rem;flex:1;min-width:0}
+  .fin-icon{font-size:1rem;flex-shrink:0}
+  .fin-title{font-size:.78rem;color:var(--text-primary);font-weight:500}
+  .fin-total-row .fin-title{color:var(--beige)}
+  .fin-sub{font-size:.62rem;color:var(--text-muted);font-family:'DM Mono',monospace;margin-top:.1rem}
+  .fin-amount-static{font-family:'DM Mono',monospace;font-size:.78rem;color:var(--text-secondary);white-space:nowrap}
+  .fin-amount-total{font-family:'DM Mono',monospace;font-size:.95rem;font-weight:600;color:var(--gold);white-space:nowrap}
+  .fin-input-wrap{display:flex;align-items:center;gap:.3rem;background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:.3rem .5rem;flex-shrink:0}
+  .fin-input-wrap:focus-within{border-color:var(--gold)}
+  .fin-currency{font-family:'DM Mono',monospace;font-size:.7rem;color:var(--text-muted)}
+  .fin-input{font-family:'DM Mono',monospace;font-size:.82rem;color:var(--text-primary);border:none;outline:none;width:80px;text-align:right;background:transparent}
+
   @media(max-width:1200px){.pipeline{grid-template-columns:repeat(3,1fr)}}
   @media(max-width:900px){
     .tab-bar{display:block;position:sticky;top:56px;z-index:90}
@@ -515,6 +530,8 @@ let editorOrderObj   = null;  // full shopify order object
 let editorItems      = [];    // [{line_item_id, variant_id, title, variant_title, quantity, price, removed, isNew}]
 let editorNote       = '';
 let allVariantsCache = [];
+let editorDiscount  = 0;   // flat discount EGP
+let editorShipping  = 0;   // shipping override EGP
 let variantsCacheLoaded = false;
 
 // ════════════════════════════════════════
@@ -587,18 +604,12 @@ async function markOrderPaid(orderId){ return shopifyFetch(`orders/${orderId}/tr
 // Load ALL products once into cache when editor opens, then filter locally
 async function loadAllProductsToCache(){
   if(variantsCacheLoaded) return;
-  // Paginate through all products (250 per page max)
-  let allProducts=[], page=1, hasMore=true;
   try{
-    while(hasMore){
-      const data=await shopifyFetch(`products.json?limit=250&status=active&fields=id,title,variants&page=${page}`);
-      const batch=data.products||[];
-      allProducts=[...allProducts,...batch];
-      hasMore=batch.length===250;
-      page++;
-    }
+    // Single fetch — 250 products covers most stores; REST page param deprecated, use limit only
+    const data=await shopifyFetch('products.json?limit=250&status=active&fields=id,title,variants');
+    const products=data.products||[];
     allVariantsCache=[];
-    allProducts.forEach(p=>{
+    products.forEach(p=>{
       (p.variants||[]).forEach(v=>{
         allVariantsCache.push({
           product_id:   p.id,
@@ -612,8 +623,19 @@ async function loadAllProductsToCache(){
       });
     });
     variantsCacheLoaded=true;
+    // Re-trigger search if operator already typed something while loading
+    const inp=document.getElementById('prod-search-input');
+    if(inp&&inp.value.trim()) onProductSearch(inp.value);
   }catch(e){
-    if(e.message&&e.message.includes('403')) throw new Error('SCOPE_DENIED');
+    variantsCacheLoaded=false;
+    const resultsEl=document.getElementById('prod-search-results');
+    if(resultsEl){
+      const msg=e.message&&e.message.includes('403')
+        ?'⚠ read_products scope missing — contact admin'
+        :`Error loading products: ${e.message}`;
+      resultsEl.innerHTML=`<div class="search-empty" style="color:var(--danger)">${msg}</div>`;
+      resultsEl.classList.add('open');
+    }
     throw e;
   }
 }
@@ -1029,6 +1051,8 @@ function openEditor(sid, num, name, orderEncoded){
   }));
 
   editorNote=(order?order.note:'')||'';
+  editorDiscount=parseFloat(order&&order.total_discounts||0);
+  editorShipping=parseFloat(order&&order.shipping_lines&&order.shipping_lines[0]&&order.shipping_lines[0].price||0);
 
   // Pre-load product cache in background so search is instant
   if(!variantsCacheLoaded){
@@ -1047,30 +1071,31 @@ function openEditor(sid, num, name, orderEncoded){
 function closeEditor(){
   document.getElementById('editor-overlay').classList.remove('open');
   document.body.style.overflow='';
-  editorOrderId=null; editorOrderObj=null; editorItems=[]; editorNote='';
+  editorOrderId=null; editorOrderObj=null; editorItems=[]; editorNote=''; editorDiscount=0; editorShipping=0;
   // clear search
   const sr=document.getElementById('prod-search-results');
   if(sr) sr.classList.remove('open');
 }
 
 function renderEditorBody(){
-  const total=editorItems.reduce((s,i)=>i.removed?s:s+(i.price*i.quantity),0);
+  const subtotal=editorItems.reduce((s,i)=>i.removed?s:s+(i.price*i.quantity),0);
+  const disc=editorDiscount||0;
+  const ship=editorShipping||0;
+  const grandTotal=Math.max(0,subtotal-disc)+ship;
   const hasChanges=editorItems.some(i=>i.removed||i.isNew||
     (editorOrderObj&&(editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity)));
-  const changeCount=editorItems.filter(i=>i.removed||i.isNew).length +
-    editorItems.filter(i=>!i.removed&&!i.isNew&&editorOrderObj&&(editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity)).length;
 
   document.getElementById('editor-body').innerHTML=`
     <div class="editor-summary">
       <div>
         <div class="editor-summary-label">Order Total</div>
-        ${hasChanges?`<div class="editor-summary-changes">⚠ ${changeCount} change${changeCount!==1?'s':''} pending</div>`:''}
+        ${hasChanges?`<div class="editor-summary-changes">⚠ Unsaved changes</div>`:''}
       </div>
-      <div class="editor-summary-val">EGP ${total.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
+      <div class="editor-summary-val">EGP ${grandTotal.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
     </div>
 
     <div class="editor-section">
-      <div class="editor-section-title">Current Items</div>
+      <div class="editor-section-title">Items</div>
       <div id="editor-items-list">
         ${editorItems.length===0?'<div style="font-size:.75rem;color:var(--text-muted);text-align:center;padding:1rem;">No items</div>':
           editorItems.map((item,idx)=>`
@@ -1096,12 +1121,63 @@ function renderEditorBody(){
     <div class="editor-section">
       <div class="editor-section-title">Add Product</div>
       <div class="product-search-wrap">
-        <input class="product-search-input" id="prod-search-input" placeholder="Type any word to search…" oninput="onProductSearch(this.value)" autocomplete="off">
+        <input class="product-search-input" id="prod-search-input" placeholder="Type any word — brooch, kimono, gold…" oninput="onProductSearch(this.value)" autocomplete="off">
         <div class="product-search-results" id="prod-search-results"></div>
       </div>
-      <a href="https://muhrastore-2.myshopify.com/admin/orders/${editorOrderId}" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:.4rem;margin-top:.6rem;padding:.45rem;background:var(--beige-mid);border:1px solid var(--border);border-radius:8px;font-size:.7rem;color:var(--text-secondary);text-decoration:none;font-family:'Jost',sans-serif;transition:all .2s" onmouseover="this.style.background='var(--brown)';this.style.color='#fff'" onmouseout="this.style.background='var(--beige-mid)';this.style.color='var(--text-secondary)'">
-        🔗 Add items in Shopify Admin (required for new SKUs)
-      </a>
+    </div>
+
+    <div class="editor-section">
+      <div class="editor-section-title">Financials</div>
+      <div style="display:flex;flex-direction:column;gap:.6rem">
+
+        <div class="fin-row">
+          <div class="fin-label">
+            <span class="fin-icon">📦</span>
+            <div>
+              <div class="fin-title">Subtotal</div>
+              <div class="fin-sub">From items above</div>
+            </div>
+          </div>
+          <div class="fin-amount-static">EGP ${subtotal.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
+        </div>
+
+        <div class="fin-row">
+          <div class="fin-label">
+            <span class="fin-icon">🏷</span>
+            <div>
+              <div class="fin-title">Discount</div>
+              <div class="fin-sub">Flat amount off order</div>
+            </div>
+          </div>
+          <div class="fin-input-wrap">
+            <span class="fin-currency">EGP</span>
+            <input class="fin-input" id="fin-discount" type="number" min="0" step="1" value="${disc}" oninput="editorDiscount=parseFloat(this.value)||0;renderEditorBody()">
+          </div>
+        </div>
+
+        <div class="fin-row">
+          <div class="fin-label">
+            <span class="fin-icon">🚚</span>
+            <div>
+              <div class="fin-title">Shipping</div>
+              <div class="fin-sub">Override shipping cost</div>
+            </div>
+          </div>
+          <div class="fin-input-wrap">
+            <span class="fin-currency">EGP</span>
+            <input class="fin-input" id="fin-shipping" type="number" min="0" step="1" value="${ship}" oninput="editorShipping=parseFloat(this.value)||0;renderEditorBody()">
+          </div>
+        </div>
+
+        <div class="fin-row fin-total-row">
+          <div class="fin-label">
+            <span class="fin-icon">💰</span>
+            <div><div class="fin-title" style="font-weight:600">Total to Collect</div></div>
+          </div>
+          <div class="fin-amount-total">EGP ${grandTotal.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
+        </div>
+
+      </div>
     </div>
 
     <div class="editor-section">
@@ -1131,12 +1207,14 @@ function restoreItem(idx){
 // Product search — instant local filter against pre-loaded cache
 function onProductSearch(val){
   const resultsEl=document.getElementById('prod-search-results');
+  if(!val||!val.trim()){ resultsEl.classList.remove('open'); return; }
   if(!variantsCacheLoaded){
     resultsEl.innerHTML='<div class="search-loading">Loading products…</div>';
     resultsEl.classList.add('open');
+    // Kick off load if not already running
+    loadAllProductsToCache().catch(()=>{});
     return;
   }
-  if(!val||!val.trim()){ resultsEl.classList.remove('open'); return; }
   const matches=filterVariants(val);
   renderSearchResults(matches, resultsEl);
 }
@@ -1184,47 +1262,51 @@ function addProductToOrder(variantIndex){
 }
 
 async function saveOrderEdits(){
-  const noteField=document.getElementById('editor-note-field');
-  const note=noteField?noteField.value.trim():editorNote;
   const btn=document.getElementById('btn-save-order');
   btn.disabled=true; btn.innerHTML='<span class="ri" style="animation:spin .8s linear infinite;display:inline-block">↻</span> Saving…';
 
   try{
-    // 1. Update note on Shopify
-    if(note!==editorNote){
-      await addOrderNote(editorOrderId, note);
-    }
+    const noteField=document.getElementById('editor-note-field');
+    const note=noteField?noteField.value.trim():editorNote;
+    const disc=editorDiscount||0;
+    const ship=editorShipping||0;
+    const subtotal=editorItems.reduce((s,i)=>i.removed?s:s+(i.price*i.quantity),0);
+    const grandTotal=Math.max(0,subtotal-disc)+ship;
 
-    // 2. Build updated line_items for Shopify PUT
-    // Keep existing items with updated quantities, exclude removed
-    // Note: Adding NEW items requires order_edit API (GraphQL) — we update note and flag, then link to Shopify admin
-    const existingUpdates=editorItems
-      .filter(i=>!i.isNew&&!i.removed)
-      .map(i=>({id:i.line_item_id,quantity:i.quantity}));
-
-    const removedIds=editorItems.filter(i=>!i.isNew&&i.removed).map(i=>i.line_item_id);
+    // Build change summary
     const newItems=editorItems.filter(i=>i.isNew&&!i.removed);
-
-    // Build change summary for the Shopify order note append
+    const removedIds=editorItems.filter(i=>!i.isNew&&i.removed).map(i=>i.line_item_id);
+    const qtyChanges=editorItems.filter(i=>!i.isNew&&!i.removed&&editorOrderObj&&(editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity));
     let changeSummary='';
     if(removedIds.length) changeSummary+=`Removed ${removedIds.length} item(s). `;
     if(newItems.length) changeSummary+=`Added: ${newItems.map(i=>`${i.title} ×${i.quantity}`).join(', ')}. `;
-    const qtyChanges=editorItems.filter(i=>!i.isNew&&!i.removed&&editorOrderObj&&(editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity));
     if(qtyChanges.length) changeSummary+=`Qty changed: ${qtyChanges.map(i=>`${i.title} → ×${i.quantity}`).join(', ')}. `;
+    const origDisc=parseFloat(editorOrderObj&&editorOrderObj.total_discounts||0);
+    const origShip=parseFloat(editorOrderObj&&editorOrderObj.shipping_lines&&editorOrderObj.shipping_lines[0]&&editorOrderObj.shipping_lines[0].price||0);
+    if(disc!==origDisc) changeSummary+=`Discount: EGP ${disc}. `;
+    if(ship!==origShip) changeSummary+=`Shipping: EGP ${ship}. `;
 
-    // PUT line_items to Shopify (REST supports qty change for existing items)
+    // 1. Build Shopify order PUT payload
+    const orderPayload={id:Number(editorOrderId), note};
+    // Apply discount via discount_codes override (flat manual discount)
+    if(disc>0) orderPayload.discount_codes=[{code:'MANUAL',amount:disc.toFixed(2),type:'fixed_amount'}];
+    else orderPayload.discount_codes=[];
+    // Shipping override
+    if(ship!==origShip) orderPayload.shipping_lines=[{title:'Shipping',price:ship.toFixed(2),code:'CUSTOM'}];
+
+    await shopifyFetch(`orders/${editorOrderId}.json`,'PUT',{order:orderPayload});
+
+    // 2. Quantity updates on existing items
+    const existingUpdates=editorItems.filter(i=>!i.isNew&&!i.removed).map(i=>({id:i.line_item_id,quantity:i.quantity}));
     if(existingUpdates.length>0){
-      try{
-        await updateShopifyOrderItems(editorOrderId, existingUpdates);
-      }catch(e){
-        console.warn('Line item update partial error:', e.message);
-      }
+      try{ await updateShopifyOrderItems(editorOrderId,existingUpdates); }
+      catch(e){ console.warn('Line item qty update:',e.message); }
     }
 
     // If there are new items, flag for Shopify Admin completion and append note
     if(newItems.length>0){
       const addNote=`\n⚙ Operator added items (complete in Shopify Admin): ${newItems.map(i=>`${i.title} ×${i.quantity} @ EGP ${i.price}`).join(', ')}`;
-      await addOrderNote(editorOrderId, (note||'')+(changeSummary?'\n🔄 Changes: '+changeSummary:'')+addNote);
+      await addOrderNote(editorOrderId,(note||'')+(changeSummary?'\n🔄 Changes: '+changeSummary:'')+addNote);
       showToast('Items added — complete in Shopify Admin for new SKUs','warn');
     } else if(changeSummary){
       const fullNote=(note||'')+(changeSummary?'\n🔄 Changes on '+fmtDate(new Date())+': '+changeSummary:'');
@@ -1232,9 +1314,9 @@ async function saveOrderEdits(){
     }
 
     // 3. Update Supabase record with new total and note
-    const newTotal=editorItems.reduce((s,i)=>i.removed?s:s+(i.price*i.quantity),0);
+
     await updateRecord(editorOrderId,{
-      total_price: newTotal,
+      total_price: grandTotal,
       notes: note,
       updated_at: new Date().toISOString()
     });
