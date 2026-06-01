@@ -604,6 +604,25 @@ async function cancelShopifyOrder(orderId){
   console.log('[cancel] Shopify response:', result);
   return result;
 }
+async function restockShopifyOrder(orderId){
+  console.log('[restock] fetching line items for', orderId);
+  const data = await shopifyFetch(`orders/${orderId}.json?fields=id,line_items`, 'GET');
+  const lineItems = data.order.line_items;
+  const refundLineItems = lineItems.map(item => ({
+    line_item_id: item.id,
+    quantity: item.quantity,
+    restock_type: 'return',
+    location_id: 76527337523
+  }));
+  const result = await shopifyFetch(`orders/${orderId}/refunds.json`, 'POST', {
+    refund: {
+      restock: true,
+      refund_line_items: refundLineItems
+    }
+  });
+  console.log('[restock] result:', result);
+  return result;
+}
 async function addOrderNote(orderId,note){ return shopifyFetch(`orders/${orderId}.json`,'PUT',{order:{id:Number(orderId),note}}); }
 async function markOrderPaid(orderId){ return shopifyFetch(`orders/${orderId}/transactions.json`,'POST',{transaction:{kind:'capture',status:'success'}}); }
 
@@ -1498,6 +1517,13 @@ function cancelOrder(sid,num,name,reason){
         try{
           await cancelShopifyOrder(sid);
           console.log('[cancel] Shopify cancel succeeded for', sid);
+          // Step 1b: restock inventory
+          try{
+            await restockShopifyOrder(sid);
+            console.log('[restock] inventory restocked for', sid);
+          }catch(restockErr){
+            console.warn('[restock] restock failed (non-blocking):', restockErr.message);
+          }
         }catch(shopifyErr){
           console.error('[cancel] Shopify cancel FAILED for', sid, shopifyErr.message);
           showToast(`Shopify error: ${shopifyErr.message}`,'error');
