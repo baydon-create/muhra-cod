@@ -1558,7 +1558,9 @@ function showModal(title,desc,type,textareaLabel,onConfirm){
   btn.className=`modal-btn ${type}`;
   btn.textContent=type==='danger'?'Confirm & Cancel':type==='orange'?'Confirm':'Confirm';
   pendingAction=onConfirm;
-  document.getElementById('modal-overlay').classList.add('open');
+  // Defer open by one frame so the triggering click event fully finishes
+  // before the overlay backdrop listener activates — prevents immediate self-close
+  setTimeout(()=>document.getElementById('modal-overlay').classList.add('open'), 10);
 }
 function closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); pendingAction=null; }
 function modalConfirm(){ closeModal(); if(pendingAction) pendingAction(); }
