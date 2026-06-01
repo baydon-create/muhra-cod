@@ -600,8 +600,7 @@ async function getOrders(){
 
 async function cancelShopifyOrder(orderId){
   console.log('[cancel] Shopify cancel call for order', orderId);
-  // Send an empty object to bypass strict refund payload validation
-  const result=await shopifyFetch(`orders/${orderId}/cancel.json`,'POST',{});
+  const result = await shopifyFetch(`orders/${orderId}/cancel.json`, 'POST', {});
   console.log('[cancel] Shopify response:', result);
   return result;
 }
@@ -1566,8 +1565,16 @@ function showModal(title,desc,type,textareaLabel,onConfirm){
   overlay.classList.add('open');
   setTimeout(()=>{ confirmBtn.disabled=false; }, 300);
 }
-function closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); pendingAction=null; }
-function modalConfirm(){ closeModal(); if(pendingAction) pendingAction(); }
+function closeModal(){ 
+  document.getElementById('modal-overlay').classList.remove('open'); 
+  pendingAction = null; 
+}
+
+function modalConfirm(){ 
+  const actionToExecute = pendingAction; 
+  closeModal(); 
+  if(actionToExecute) actionToExecute(); 
+}
 document.getElementById('modal-overlay').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
 
 // Close editor overlay on backdrop click
