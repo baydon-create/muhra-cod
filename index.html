@@ -38,8 +38,15 @@
   .pin-btn.zero{grid-column:2}
   .pin-error{color:#e74c3c;font-size:.75rem;margin-top:1rem;font-family:'DM Mono',monospace;min-height:1rem}
 
+  /* STICKY TOP STACK */
+  .sticky-top{position:sticky;z-index:100}
+  .sticky-top.z100{z-index:100}
+  .sticky-top.z90{z-index:90}
+  .sticky-top.z89{z-index:89}
+  .sticky-top.z88{z-index:88}
+
   /* HEADER */
-  header{background:var(--brown);padding:0 1.25rem;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 2px 16px rgba(0,0,0,.2)}
+  header{background:var(--brown);padding:0 1.25rem;height:auto;min-height:56px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;padding-top:.5rem;padding-bottom:.5rem;position:sticky;top:0;z-index:100;box-shadow:0 2px 16px rgba(0,0,0,.2)}
   .header-brand{font-size:.95rem;font-weight:300;color:var(--beige);letter-spacing:.2em;text-transform:uppercase}
   .header-brand span{color:var(--gold);font-weight:500}
   .header-right{display:flex;align-items:center;gap:.75rem}
@@ -50,8 +57,18 @@
   .btn-logout{background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:.7rem;font-family:'DM Mono',monospace}
   .btn-logout:hover{color:var(--beige)}
 
+  /* DATE RANGE */
+  .date-range{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+  .date-range-label{font-family:'DM Mono',monospace;font-size:.58rem;color:rgba(201,169,110,.7);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+  .date-input{font-family:'DM Mono',monospace;font-size:.68rem;color:var(--beige);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:6px;padding:.3rem .5rem;outline:none;cursor:pointer;width:110px}
+  .date-input::-webkit-calendar-picker-indicator{filter:invert(1) opacity(.5);cursor:pointer}
+  .date-input:focus{border-color:rgba(201,169,110,.6)}
+  .btn-date-apply{background:rgba(201,169,110,.2);border:1px solid rgba(201,169,110,.4);color:var(--gold);padding:.3rem .65rem;border-radius:6px;font-family:'Jost',sans-serif;font-size:.68rem;font-weight:500;cursor:pointer;transition:all .2s;white-space:nowrap}
+  .btn-date-apply:hover{background:var(--gold);color:var(--brown)}
+  .fetch-progress{font-family:'DM Mono',monospace;font-size:.58rem;color:rgba(201,169,110,.6);white-space:nowrap}
+
   /* STATS */
-  .stats-bar{background:var(--brown-dark);padding:.75rem 1.25rem;display:flex;gap:1.25rem;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .stats-bar{background:var(--brown-dark);padding:.75rem 1.25rem;display:flex;gap:1.25rem;overflow-x:auto;-webkit-overflow-scrolling:touch;position:sticky;z-index:95}
   .stats-bar::-webkit-scrollbar{display:none}
   .stat-item{display:flex;flex-direction:column;gap:.15rem;white-space:nowrap}
   .stat-label{font-family:'DM Mono',monospace;font-size:.55rem;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase}
@@ -63,7 +80,7 @@
   .stat-divider{width:1px;background:rgba(255,255,255,.08);align-self:stretch;flex-shrink:0}
 
   /* TABS */
-  .tab-bar{display:none;background:var(--brown);border-bottom:1px solid rgba(255,255,255,.08);overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap}
+  .tab-bar{display:none;background:var(--brown);border-bottom:1px solid rgba(255,255,255,.08);overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap;position:sticky;z-index:90}
   .tab-bar::-webkit-scrollbar{display:none}
   .tab-btn{display:inline-flex;align-items:center;gap:.4rem;padding:.75rem 1rem;font-family:'Jost',sans-serif;font-size:.75rem;font-weight:500;color:rgba(255,255,255,.5);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .2s;white-space:nowrap}
   .tab-btn.active{color:var(--beige);border-bottom-color:var(--gold)}
@@ -71,7 +88,7 @@
   .tab-btn.active .tab-count{background:rgba(201,169,110,.25);color:var(--gold)}
 
   /* CONTROL BAR */
-  .control-bar{background:var(--beige-mid);border-bottom:1px solid var(--border);padding:.6rem 1.25rem;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+  .control-bar{background:var(--beige-mid);border-bottom:1px solid var(--border);padding:.6rem 1.25rem;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;position:sticky;z-index:89}
   .control-label{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;white-space:nowrap}
   .control-select{font-family:'Jost',sans-serif;font-size:.75rem;color:var(--text-primary);background:#fff;border:1px solid var(--border);border-radius:8px;padding:.35rem .6rem;cursor:pointer;outline:none;transition:border-color .2s;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a89880' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .5rem center;padding-right:1.6rem}
   .control-select:focus{border-color:var(--gold)}
@@ -184,7 +201,7 @@
   .spinner{width:30px;height:30px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite}
 
   /* VIEW-ONLY BAR */
-  .view-only-bar{background:rgba(201,169,110,.1);border-bottom:1px solid rgba(201,169,110,.2);padding:.4rem 1.25rem;font-size:.68rem;color:var(--gold);font-family:'DM Mono',monospace;letter-spacing:.07em;text-align:center;display:none}
+  .view-only-bar{background:rgba(201,169,110,.1);border-bottom:1px solid rgba(201,169,110,.2);padding:.4rem 1.25rem;font-size:.68rem;color:var(--gold);font-family:'DM Mono',monospace;letter-spacing:.07em;text-align:center;display:none;position:sticky;z-index:94}
   .view-only-bar.visible{display:block}
 
   ::-webkit-scrollbar{width:5px;height:5px}
@@ -327,9 +344,7 @@
 
   @media(max-width:1500px){.pipeline{grid-template-columns:repeat(4,1fr)}} @media(max-width:1100px){.pipeline{grid-template-columns:repeat(3,1fr)}}
   @media(max-width:900px){
-    .tab-bar{display:block;position:sticky;top:56px;z-index:90}
-    .control-bar{position:sticky;top:calc(56px + 41px);z-index:89}
-    .view-only-bar.visible{position:sticky;top:56px;z-index:91}
+    .tab-bar{display:block}
     .pipeline{grid-template-columns:1fr;padding:1rem;gap:.875rem}
     .col{display:none}
     .col.active{display:flex}
@@ -383,6 +398,14 @@
 <div id="app" style="display:none">
   <header>
     <div class="header-brand">Muhra <span>/ COD</span></div>
+    <div class="date-range">
+      <span class="date-range-label">From</span>
+      <input type="date" class="date-input" id="date-from" />
+      <span class="date-range-label">To</span>
+      <input type="date" class="date-input" id="date-to" />
+      <button class="btn-date-apply" onclick="loadAll()">↻ Fetch</button>
+      <span class="fetch-progress" id="fetch-progress"></span>
+    </div>
     <div class="header-right">
       <div class="header-role" id="role-badge">——</div>
       <button class="btn-refresh" id="refresh-btn" onclick="loadAll()"><span class="ri">↻</span> Refresh</button>
@@ -562,7 +585,52 @@ function enterApp(){
   document.getElementById('app').style.display='block';
   document.getElementById('role-badge').textContent=currentRole==='operator'?'⚙ Operator':'👁 Viewer';
   if(currentRole==='viewer') document.getElementById('view-only-bar').classList.add('visible');
+
+  // Default date range: last 90 days
+  const toEl   = document.getElementById('date-to');
+  const fromEl = document.getElementById('date-from');
+  if(!toEl.value){
+    const now = new Date();
+    toEl.value = now.toISOString().slice(0,10);
+    const from = new Date(now); from.setDate(from.getDate()-90);
+    fromEl.value = from.toISOString().slice(0,10);
+  }
+
+  // Sticky top stack: recalculate whenever header height changes
+  updateStickyTops();
+  const ro = new ResizeObserver(updateStickyTops);
+  ro.observe(document.querySelector('header'));
+
   loadAll();
+}
+
+function updateStickyTops(){
+  const header   = document.querySelector('header');
+  const viewOnly = document.getElementById('view-only-bar');
+  const statsBar = document.querySelector('.stats-bar');
+  const tabBar   = document.getElementById('tab-bar');
+  const ctrlBar  = document.querySelector('.control-bar');
+  if(!header) return;
+  let top = header.offsetHeight;
+  // view-only bar
+  if(viewOnly){
+    viewOnly.style.top = top+'px';
+    if(viewOnly.classList.contains('visible')) top += viewOnly.offsetHeight;
+  }
+  // stats bar (desktop only — hidden on mobile)
+  if(statsBar){
+    statsBar.style.top = top+'px';
+    if(getComputedStyle(statsBar).display !== 'none') top += statsBar.offsetHeight;
+  }
+  // tab bar (mobile only — display:block when visible)
+  if(tabBar){
+    tabBar.style.top = top+'px';
+    if(getComputedStyle(tabBar).display !== 'none') top += tabBar.offsetHeight;
+  }
+  // control bar
+  if(ctrlBar) ctrlBar.style.top = top+'px';
+  // col-headers inside pipeline need to know total offset
+  document.querySelectorAll('.col-header').forEach(h => h.style.top = (top)+'px');
 }
 function logout(){
   currentRole=null; pinBuffer=''; updateDots();
@@ -596,17 +664,67 @@ async function shopifyFetch(path, method='GET', bodyObj=null){
   return res.json();
 }
 
+// ── Paginated Shopify order fetcher ──────────────────────────────────────────
+// Fetches ALL pages for a given query (250 per page) until exhausted
+async function fetchAllPages(baseParams, progressLabel){
+  const orders = [];
+  let page = 1;
+  let pageInfo = null; // Shopify cursor-based pagination via Link header not available in proxy
+  // Use created_at_min/max + since_id pagination instead
+  let sinceId = 0;
+  const limit = 250;
+  while(true){
+    const params = baseParams + (sinceId ? `&since_id=${sinceId}` : '') + `&limit=${limit}`;
+    const data = await shopifyFetch(params);
+    const batch = data.orders || [];
+    if(!batch.length) break;
+    orders.push(...batch);
+    if(batch.length < limit) break; // last page
+    sinceId = batch[batch.length-1].id;
+    page++;
+    const prog = document.getElementById('fetch-progress');
+    if(prog) prog.textContent = `${progressLabel} — ${orders.length} loaded…`;
+  }
+  return orders;
+}
+
 async function getOrders(){
-  // Fetch open orders + any shipped-by-accurate tagged orders regardless of status (catches voided/cancelled)
-  const [r1,r2,r3,r4]=await Promise.all([
-    shopifyFetch('orders.json?financial_status=pending&status=open&limit=250'),
-    shopifyFetch('orders.json?financial_status=paid&status=open&fulfillment_status=unfulfilled&limit=250'),
-    shopifyFetch('orders.json?fulfillment_status=fulfilled&status=open&limit=50'),
-    shopifyFetch('orders.json?tag=shipped-by-accurate&status=any&limit=250')
+  const fromEl = document.getElementById('date-from');
+  const toEl   = document.getElementById('date-to');
+  const prog   = document.getElementById('fetch-progress');
+
+  // Build date params
+  let dateParams = '';
+  if(fromEl && fromEl.value) dateParams += `&created_at_min=${fromEl.value}T00:00:00+03:00`;
+  if(toEl   && toEl.value)   dateParams += `&created_at_max=${toEl.value}T23:59:59+03:00`;
+
+  if(prog) prog.textContent = 'Fetching…';
+
+  // Run all 5 fetches in parallel — each gets full pagination
+  const [
+    openPending,
+    openPaid,
+    openFulfilled,
+    closedAll,      // archived + closed orders (paid+fulfilled, voided, cancelled)
+    cancelledAll    // explicitly cancelled regardless of payment
+  ] = await Promise.all([
+    fetchAllPages(`orders.json?status=open&financial_status=pending${dateParams}`, 'Open/Pending'),
+    fetchAllPages(`orders.json?status=open&financial_status=paid${dateParams}`, 'Open/Paid'),
+    fetchAllPages(`orders.json?status=open&fulfillment_status=fulfilled${dateParams}`, 'Open/Fulfilled'),
+    fetchAllPages(`orders.json?status=closed${dateParams}`, 'Closed'),
+    fetchAllPages(`orders.json?status=cancelled${dateParams}`, 'Cancelled')
   ]);
-  const all=[...(r1.orders||[]),...(r2.orders||[]),...(r3.orders||[]),...(r4.orders||[])];
-  const seen=new Set();
-  return all.filter(o=>{ if(seen.has(o.id))return false; seen.add(o.id); return true; });
+
+  if(prog) prog.textContent = '';
+
+  // Deduplicate by order id — priority: open > closed > cancelled
+  const seen = new Set();
+  const all = [...openPending, ...openFulfilled, ...openPaid, ...closedAll, ...cancelledAll];
+  return all.filter(o => {
+    if(seen.has(o.id)) return false;
+    seen.add(o.id);
+    return true;
+  });
 }
 
 async function cancelShopifyOrder(orderId) {
@@ -760,11 +878,10 @@ async function loadAll(){
       const sid=String(order.id);
       let rec=sbMap[sid];
       const isVoided    = order.financial_status==='voided';
-      const isCancelled = order.cancel_reason!=null || order.cancelled_at!=null;
+      const isCancelled = order.cancel_reason!=null || order.cancelled_at!=null || order.status==='cancelled';
       const isPaidOnline= order.financial_status==='paid';
-      // "Already paid & archived" = paid + fulfillment_status fulfilled + closed (status=closed)
-      // These pre-existed before the dashboard and should surface as Collected read-only
-      const isArchivedPaid = isPaidOnline && order.fulfillment_status==='fulfilled' && order.status==='closed';
+      // Archived paid: paid + closed status (archived). Fulfilled not required — some may have shipped without fulfillment_status set.
+      const isArchivedPaid = isPaidOnline && order.status==='closed' && !isVoided;
 
       if(!rec){
         // Voided / cancelled-on-Shopify wins over everything else
@@ -820,8 +937,9 @@ async function loadAll(){
         }
       }
 
-      // Skip internal-cancelled (dashboard-cancelled, not Shopify voided) — don't re-surface them
-      if(rec.stage==='cancelled') continue;
+      // Never skip cancelled_voided — they belong in the Cancelled tab
+      // Only skip orphan internal 'cancelled' records that have no order data (shouldn't normally occur)
+      if(rec.stage==='cancelled' && !isVoided && !isCancelled) continue;
 
       // Auto-advance fulfilled → in_delivery (only for non-voided open orders)
       if(!isVoided && !isCancelled && order.fulfillment_status==='fulfilled' && rec.stage==='confirmed'){
@@ -844,6 +962,7 @@ async function loadAll(){
     allMerged=merged;
     updateStats(merged);
     applyControls();
+    setTimeout(updateStickyTops,50);
   } catch(e){
     console.error(e);
     showToast('Failed to load: '+e.message,'error');
@@ -1583,7 +1702,7 @@ function confirmReturned(sid,num,name){
     'danger',null,async()=>{
       try{
         await cancelShopifyOrder(sid);
-        await updateRecord(sid,{stage:'cancelled',return_confirmed_at:new Date().toISOString(),cancelled_at:new Date().toISOString()});
+        await updateRecord(sid,{stage:'cancelled_voided',return_confirmed_at:new Date().toISOString(),cancelled_at:new Date().toISOString()});
         showToast(`${num} — Received, cancelled & restocked ✓`,'success'); loadAll();
       }catch(e){showToast('Error: '+e.message,'error');}
     });
@@ -1615,7 +1734,7 @@ function cancelOrder(sid,num,name,reason){
 
         // Step 3: update Supabase so card disappears from the board
         try{
-          await updateRecord(sid,{stage:'cancelled',cancelled_at:new Date().toISOString(),notes:reason||'Cancelled'});
+          await updateRecord(sid,{stage:'cancelled_voided',cancelled_at:new Date().toISOString(),notes:reason||'Cancelled'});
           console.log('[cancel] Supabase updated for', sid);
         }catch(sbErr){
           console.error('[cancel] Supabase update FAILED for', sid, sbErr.message);
