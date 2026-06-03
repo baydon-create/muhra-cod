@@ -81,7 +81,7 @@
   .result-count{font-family:'DM Mono',monospace;font-size:.62rem;color:var(--text-muted);margin-left:auto;white-space:nowrap}
 
   /* PIPELINE */
-  .pipeline{display:grid;grid-template-columns:repeat(6,1fr);gap:1.25rem;padding:1.25rem 1.5rem 3rem;align-items:start}
+  .pipeline{display:grid;grid-template-columns:repeat(7,1fr);gap:1.25rem;padding:1.25rem 1.5rem 3rem;align-items:start}
   .col{display:flex;flex-direction:column;gap:.875rem}
   .col-header{display:flex;align-items:center;justify-content:space-between;padding:.65rem .875rem;border-radius:10px;position:sticky;top:68px;z-index:10}
   .col-header.yellow{background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.25)}
@@ -325,7 +325,7 @@
   .fin-currency{font-family:'DM Mono',monospace;font-size:.7rem;color:var(--text-muted)}
   .fin-input{font-family:'DM Mono',monospace;font-size:.82rem;color:var(--text-primary);border:none;outline:none;width:80px;text-align:right;background:transparent}
 
-  @media(max-width:1200px){.pipeline{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:1500px){.pipeline{grid-template-columns:repeat(4,1fr)}} @media(max-width:1100px){.pipeline{grid-template-columns:repeat(3,1fr)}}
   @media(max-width:900px){
     .tab-bar{display:block;position:sticky;top:56px;z-index:90}
     .control-bar{position:sticky;top:calc(56px + 41px);z-index:89}
@@ -339,7 +339,7 @@
     .editor-drawer{max-height:95vh}
   }
   @media(min-width:901px){
-    .pipeline{grid-template-columns:repeat(6,1fr)}
+    .pipeline{grid-template-columns:repeat(7,1fr)}
     .col{display:flex!important}
     .items-popup{border-radius:16px;margin:auto;max-height:80vh}
     .items-popup-overlay{align-items:center;padding:1rem}
@@ -605,9 +605,6 @@ async function getOrders(){
     shopifyFetch('orders.json?tag=shipped-by-accurate&status=any&limit=250')
   ]);
   const all=[...(r1.orders||[]),...(r2.orders||[]),...(r3.orders||[]),...(r4.orders||[])];
-  const seen=new Set();
-  return all.filter(o=>{ if(seen.has(o.id))return false; seen.add(o.id); return true; });
-}
   const seen=new Set();
   return all.filter(o=>{ if(seen.has(o.id))return false; seen.add(o.id); return true; });
 }
