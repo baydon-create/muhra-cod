@@ -60,6 +60,7 @@
   .stat-value.blue{color:var(--s-blue)}     .stat-value.teal{color:var(--s-teal)}
   .stat-value.orange{color:var(--s-orange)} .stat-value.red{color:var(--s-red)}
   .stat-divider{width:1px;background:rgba(255,255,255,.08);align-self:stretch;flex-shrink:0}
+  .stat-sublabel{font-family:'DM Mono',monospace;font-size:.5rem;color:var(--text-muted);letter-spacing:.05em}
 
   /* TABS */
   .tab-bar{display:none;background:var(--brown);border-bottom:1px solid rgba(255,255,255,.08);overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap}
@@ -389,21 +390,33 @@
   <div class="view-only-bar" id="view-only-bar">👁 View-only — Contact Asmaa to make changes</div>
 
   <div class="stats-bar">
-    <div class="stat-item"><span class="stat-label">Total</span><span class="stat-value" id="stat-total">—</span></div>
+    <div class="stat-item">
+      <span class="stat-label">🟡 Awaiting Delivery</span>
+      <span class="stat-value yellow" id="stat-val-awaiting">—</span>
+      <span class="stat-sublabel" id="stat-cnt-awaiting">— orders</span>
+    </div>
     <div class="stat-divider"></div>
-    <div class="stat-item"><span class="stat-label">Awaiting</span><span class="stat-value yellow" id="stat-s1">—</span></div>
+    <div class="stat-item">
+      <span class="stat-label">🟢 Confirmed</span>
+      <span class="stat-value green" id="stat-val-confirmed">—</span>
+      <span class="stat-sublabel" id="stat-cnt-confirmed">— orders</span>
+    </div>
     <div class="stat-divider"></div>
-    <div class="stat-item"><span class="stat-label">Confirmed</span><span class="stat-value green" id="stat-s2">—</span></div>
+    <div class="stat-item">
+      <span class="stat-label">🚚 In Delivery</span>
+      <span class="stat-value blue" id="stat-val-delivery">—</span>
+      <span class="stat-sublabel" id="stat-cnt-delivery">— orders</span>
+    </div>
     <div class="stat-divider"></div>
-    <div class="stat-item"><span class="stat-label">Delivery</span><span class="stat-value blue" id="stat-s3">—</span></div>
-    <div class="stat-divider"></div>
-    <div class="stat-item"><span class="stat-label">Collected</span><span class="stat-value teal" id="stat-s4">—</span></div>
+    <div class="stat-item">
+      <span class="stat-label">✅ Collected</span>
+      <span class="stat-value teal" id="stat-val-collected">—</span>
+      <span class="stat-sublabel" id="stat-cnt-collected">— orders</span>
+    </div>
     <div class="stat-divider"></div>
     <div class="stat-item"><span class="stat-label">Returning</span><span class="stat-value orange" id="stat-s5">—</span></div>
     <div class="stat-divider"></div>
     <div class="stat-item"><span class="stat-label">On Hold</span><span class="stat-value red" id="stat-s6">—</span></div>
-    <div class="stat-divider"></div>
-    <div class="stat-item"><span class="stat-label">Value</span><span class="stat-value" id="stat-value">—</span></div>
     <div class="stat-divider"></div>
     <div class="stat-item"><span class="stat-label">Expiring</span><span class="stat-value" id="stat-expiring" style="color:var(--danger)">—</span></div>
   </div>
@@ -768,7 +781,19 @@ async function loadAll(){
       // Skip already-cancelled records — don't re-surface them
       if(rec.stage==='cancelled') continue;
 
-      // Auto-advance fulfilled → in_delivery
+      // Auto-promote: if Asmaa added a shipping-confirmed note on Shopify and order is still unfulfilled
+      // Phrases: تم تحويل الشحن  or  تم دفع الشحن
+      const ASMAA_CONFIRMED_PHRASES = ['تم تحويل الشحن', 'تم دفع الشحن'];
+      const shopifyNote = (order && order.note) || '';
+      const hasAsmaaConfirmation = ASMAA_CONFIRMED_PHRASES.some(p => shopifyNote.includes(p));
+      if(
+        hasAsmaaConfirmation &&
+        rec.stage === 'awaiting_deposit' &&
+        order.fulfillment_status !== 'fulfilled'
+      ){
+        await updateRecord(sid, { stage: 'confirmed', deposit_confirmed_at: new Date().toISOString() });
+        rec = { ...rec, stage: 'confirmed' };
+      }
       if(order.fulfillment_status==='fulfilled' && rec.stage==='confirmed'){
         await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
         rec={...rec,stage:'in_delivery'};
@@ -910,8 +935,12 @@ function renderCard(stage,order,rec,isOp){
 
   // Status badges
   let badges='';
+  const shopifyNoteRaw = (order && order.note) || '';
+  const ASMAA_PHRASES = ['تم تحويل الشحن', 'تم دفع الشحن'];
+  const isAsmaaConfirmed = ASMAA_PHRASES.some(p => shopifyNoteRaw.includes(p));
   if(isHold&&(stage==='confirmed'||stage==='on_hold')) badges+=`<div class="badge hold">🔧 HOLD — Edit Pending${rec.edit_note?' · '+rec.edit_note:''}</div>`;
-  if(isPaidOnline&&stage==='confirmed') badges+=`<div class="badge paid-online">✅ Payment Verified — Ready to Ship</div>`;
+  if(isAsmaaConfirmed&&stage==='confirmed') badges+=`<div class="badge paid-online">📋 شحن مؤكد من أسماء</div>`;
+  else if(isPaidOnline&&stage==='confirmed') badges+=`<div class="badge paid-online">✅ Payment Verified — Ready to Ship</div>`;
   if(stage==='returning'&&rec.return_reason) badges+=`<div class="badge return">↩ ${rec.return_reason}</div>`;
   if(attempts>0&&stage==='in_delivery') badges+=`<div class="badge attempts">Attempt ${attempts}/3</div>`;
 
@@ -1026,11 +1055,13 @@ function renderCard(stage,order,rec,isOp){
 
 function updateStats(merged){
   const c={awaiting_deposit:0,confirmed:0,in_delivery:0,collected:0,returning:0,on_hold:0};
-  let val=0,exp=0;
+  const v={awaiting_deposit:0,confirmed:0,in_delivery:0,collected:0};
+  let exp=0;
   merged.forEach(({order,rec})=>{
     const s=rec.stage||'awaiting_deposit';
+    const price=parseFloat(rec.total_price||(order?order.total_price:0)||0);
     if(c[s]!==undefined) c[s]++;
-    val+=parseFloat(rec.total_price||(order?order.total_price:0)||0);
+    if(v[s]!==undefined) v[s]+=price;
     if(s==='awaiting_deposit'&&!(rec.payment_source==='paid_online')){
       const d=Math.floor((Date.now()-new Date(rec.created_at_shopify||(order?order.created_at:Date.now())))/86400000);
       if(d>=6) exp++;
@@ -1038,14 +1069,22 @@ function updateStats(merged){
   });
   const ALL_STAGES=['awaiting_deposit','confirmed','in_delivery','collected','returning','on_hold'];
   ALL_STAGES.forEach(s=>{ const tc=document.getElementById('tc-'+s); if(tc) tc.textContent=c[s]||0; });
-  document.getElementById('stat-total').textContent=merged.length;
-  document.getElementById('stat-s1').textContent=c.awaiting_deposit;
-  document.getElementById('stat-s2').textContent=c.confirmed;
-  document.getElementById('stat-s3').textContent=c.in_delivery;
-  document.getElementById('stat-s4').textContent=c.collected;
+
+  const fmt=n=>'EGP '+n.toLocaleString('en-EG',{maximumFractionDigits:0});
+
+  // Money stats for the 4 key financial columns
+  document.getElementById('stat-val-awaiting').textContent  = fmt(v.awaiting_deposit);
+  document.getElementById('stat-cnt-awaiting').textContent  = c.awaiting_deposit+' orders';
+  document.getElementById('stat-val-confirmed').textContent = fmt(v.confirmed);
+  document.getElementById('stat-cnt-confirmed').textContent = c.confirmed+' orders';
+  document.getElementById('stat-val-delivery').textContent  = fmt(v.in_delivery);
+  document.getElementById('stat-cnt-delivery').textContent  = c.in_delivery+' orders';
+  document.getElementById('stat-val-collected').textContent = fmt(v.collected);
+  document.getElementById('stat-cnt-collected').textContent = c.collected+' orders';
+
+  // Count-only for returning & on_hold
   document.getElementById('stat-s5').textContent=c.returning;
   document.getElementById('stat-s6').textContent=c.on_hold;
-  document.getElementById('stat-value').textContent='EGP '+val.toLocaleString('en-EG',{maximumFractionDigits:0});
   document.getElementById('stat-expiring').textContent=exp;
 }
 
