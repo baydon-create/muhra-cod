@@ -59,6 +59,7 @@
   .stat-value.yellow{color:var(--s-yellow)} .stat-value.green{color:var(--s-green)}
   .stat-value.blue{color:var(--s-blue)}     .stat-value.teal{color:var(--s-teal)}
   .stat-value.orange{color:var(--s-orange)} .stat-value.red{color:var(--s-red)}
+  .stat-value.grey  {color:#a8a29e}
   .stat-divider{width:1px;background:rgba(255,255,255,.08);align-self:stretch;flex-shrink:0}
 
   /* TABS */
@@ -89,11 +90,13 @@
   .col-header.teal  {background:rgba(22,160,133,.12);border:1px solid rgba(22,160,133,.25)}
   .col-header.orange{background:rgba(230,126,34,.12);border:1px solid rgba(230,126,34,.25)}
   .col-header.red   {background:rgba(192,57,43,.12); border:1px solid rgba(192,57,43,.25)}
+  .col-header.grey  {background:rgba(120,113,108,.12);border:1px solid rgba(120,113,108,.3)}
   .col-title{display:flex;align-items:center;gap:.4rem;font-size:.7rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase}
   .col-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
   .yellow .col-dot{background:var(--s-yellow)} .green  .col-dot{background:var(--s-green)}
   .blue   .col-dot{background:var(--s-blue)}   .teal   .col-dot{background:var(--s-teal)}
   .orange .col-dot{background:var(--s-orange)} .red    .col-dot{background:var(--s-red)}
+  .grey   .col-dot{background:#78716c}
   .col-count{font-family:'DM Mono',monospace;font-size:.65rem;padding:.15rem .5rem;border-radius:20px}
   .yellow .col-count{background:rgba(245,166,35,.2);color:var(--s-yellow)}
   .green  .col-count{background:rgba(39,174,96,.2); color:var(--s-green)}
@@ -101,6 +104,7 @@
   .teal   .col-count{background:rgba(22,160,133,.2);color:var(--s-teal)}
   .orange .col-count{background:rgba(230,126,34,.2);color:var(--s-orange)}
   .red    .col-count{background:rgba(192,57,43,.2); color:var(--s-red)}
+  .grey   .col-count{background:rgba(120,113,108,.2);color:#78716c}
 
   /* CARD */
   .order-card{background:#fff;border-radius:12px;border:1px solid var(--border);padding:.9rem 1rem;box-shadow:var(--shadow);transition:box-shadow .2s,transform .2s;animation:cardIn .3s ease}
@@ -408,6 +412,9 @@
     <div class="stat-item"><span class="stat-label">On Hold</span><span class="stat-value red" id="stat-s6">—</span></div>
     <div class="stat-divider"></div>
     <div class="stat-item"><span class="stat-label">Expiring</span><span class="stat-value" id="stat-expiring" style="color:var(--danger)">—</span></div>
+    <div class="stat-divider"></div>
+    <div class="stat-item"><span class="stat-label">Voided</span><span class="stat-value grey" id="stat-s7">—</span></div>
+    <div class="stat-item"><span class="stat-label" style="font-size:.5rem">EGP</span><span class="stat-value grey" style="font-size:.78rem" id="stat-v7">—</span></div>
   </div>
 
   <!-- MOBILE TABS -->
@@ -418,6 +425,7 @@
     <button class="tab-btn" onclick="switchTab('collected')"        id="tab-collected">✅ Collected <span class="tab-count" id="tc-collected">0</span></button>
     <button class="tab-btn" onclick="switchTab('returning')"        id="tab-returning">🔄 Returning <span class="tab-count" id="tc-returning">0</span></button>
     <button class="tab-btn" onclick="switchTab('on_hold')"          id="tab-on_hold">🔧 On Hold <span class="tab-count" id="tc-on_hold">0</span></button>
+    <button class="tab-btn" onclick="switchTab('cancelled_voided')" id="tab-cancelled_voided">🚫 Cancelled <span class="tab-count" id="tc-cancelled_voided">0</span></button>
   </div>
 
   <!-- SORT / FILTER -->
@@ -589,13 +597,17 @@ async function shopifyFetch(path, method='GET', bodyObj=null){
 }
 
 async function getOrders(){
-  // Fetch BOTH: pending (COD awaiting) AND paid (online payment confirmed)
-  const [r1,r2,r3]=await Promise.all([
+  // Fetch open orders + any shipped-by-accurate tagged orders regardless of status (catches voided/cancelled)
+  const [r1,r2,r3,r4]=await Promise.all([
     shopifyFetch('orders.json?financial_status=pending&status=open&limit=250'),
     shopifyFetch('orders.json?financial_status=paid&status=open&fulfillment_status=unfulfilled&limit=250'),
-    shopifyFetch('orders.json?fulfillment_status=fulfilled&status=open&limit=50')
+    shopifyFetch('orders.json?fulfillment_status=fulfilled&status=open&limit=50'),
+    shopifyFetch('orders.json?tag=shipped-by-accurate&status=any&limit=250')
   ]);
-  const all=[...(r1.orders||[]),...(r2.orders||[]),...(r3.orders||[])];
+  const all=[...(r1.orders||[]),...(r2.orders||[]),...(r3.orders||[]),...(r4.orders||[])];
+  const seen=new Set();
+  return all.filter(o=>{ if(seen.has(o.id))return false; seen.add(o.id); return true; });
+}
   const seen=new Set();
   return all.filter(o=>{ if(seen.has(o.id))return false; seen.add(o.id); return true; });
 }
@@ -750,18 +762,20 @@ async function loadAll(){
     for(const order of orders){
       const sid=String(order.id);
       let rec=sbMap[sid];
-      const isPaidOnline = order.financial_status==='paid';
+      const isVoided    = order.financial_status==='voided';
+      const isCancelled = order.cancel_reason!=null || order.cancelled_at!=null;
+      const isPaidOnline= order.financial_status==='paid';
+      // "Already paid & archived" = paid + fulfillment_status fulfilled + closed (status=closed)
+      // These pre-existed before the dashboard and should surface as Collected read-only
+      const isArchivedPaid = isPaidOnline && order.fulfillment_status==='fulfilled' && order.status==='closed';
 
       if(!rec){
-        // Determine initial stage:
-        // shipped-by-accurate tag → in_delivery
-        // paid online → confirmed directly
-        // pending + fulfilled → in_delivery
-        // Arabic shipping confirmation note → confirmed
-        // pending → awaiting_deposit
+        // Voided / cancelled-on-Shopify wins over everything else
         let initialStage='awaiting_deposit';
-        if(hasShippedByAccurateTag(order)) initialStage='in_delivery';
-        else if(isPaidOnline) initialStage='confirmed';
+        if(isVoided || isCancelled)         initialStage='cancelled_voided';
+        else if(isArchivedPaid)             initialStage='collected';
+        else if(hasShippedByAccurateTag(order)) initialStage='in_delivery';
+        else if(isPaidOnline)               initialStage='confirmed';
         else if(order.fulfillment_status==='fulfilled') initialStage='in_delivery';
         else if(hasArabicConfirmation(order.note)) initialStage='confirmed';
 
@@ -778,28 +792,42 @@ async function loadAll(){
         };
         try{ const ins=await insertRecord(newRec); rec=Array.isArray(ins)?ins[0]:newRec; }catch(e){ rec=newRec; }
       } else {
-        // Existing record: if it's a paid order and still in awaiting_deposit, promote to confirmed
-        if(isPaidOnline && rec.stage==='awaiting_deposit'){
-          await updateRecord(sid,{stage:'confirmed',payment_source:'paid_online',deposit_confirmed_at:new Date().toISOString()});
-          rec={...rec,stage:'confirmed',payment_source:'paid_online'};
-        }
-        // If Asmaa added Arabic shipping confirmation and order is still awaiting, auto-confirm
-        if(rec.stage==='awaiting_deposit' && !isPaidOnline && hasArabicConfirmation(order && order.note)){
-          await updateRecord(sid,{stage:'confirmed',deposit_confirmed_at:new Date().toISOString(),deposit_confirmed_by:'Asmaa (auto)'});
-          rec={...rec,stage:'confirmed'};
-        }
-        // If tag shipped-by-accurate appears and order not yet in delivery or beyond, advance
-        if(hasShippedByAccurateTag(order) && ['awaiting_deposit','confirmed'].includes(rec.stage)){
-          await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
-          rec={...rec,stage:'in_delivery'};
+        // ── Voided / cancelled on Shopify always overrides any stage except already-collected ──
+        // (If we manually collected it on the dashboard, leave it as collected)
+        if((isVoided || isCancelled) && rec.stage!=='collected'){
+          if(rec.stage!=='cancelled_voided'){
+            await updateRecord(sid,{stage:'cancelled_voided'});
+            rec={...rec,stage:'cancelled_voided'};
+          }
+        } else {
+          // Normal promotion rules only run when order is NOT voided/cancelled
+          if(isPaidOnline && rec.stage==='awaiting_deposit'){
+            await updateRecord(sid,{stage:'confirmed',payment_source:'paid_online',deposit_confirmed_at:new Date().toISOString()});
+            rec={...rec,stage:'confirmed',payment_source:'paid_online'};
+          }
+          // Arabic shipping confirmation note → confirm
+          if(rec.stage==='awaiting_deposit' && !isPaidOnline && hasArabicConfirmation(order && order.note)){
+            await updateRecord(sid,{stage:'confirmed',deposit_confirmed_at:new Date().toISOString(),deposit_confirmed_by:'Asmaa (auto)'});
+            rec={...rec,stage:'confirmed'};
+          }
+          // shipped-by-accurate tag → move to in_delivery (only from pre-delivery stages)
+          if(hasShippedByAccurateTag(order) && ['awaiting_deposit','confirmed'].includes(rec.stage)){
+            await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
+            rec={...rec,stage:'in_delivery'};
+          }
+          // Already-paid+archived orders that somehow appear with an existing record but wrong stage
+          if(isArchivedPaid && rec.stage==='awaiting_deposit'){
+            await updateRecord(sid,{stage:'collected'});
+            rec={...rec,stage:'collected'};
+          }
         }
       }
 
-      // Skip already-cancelled records — don't re-surface them
+      // Skip internal-cancelled (dashboard-cancelled, not Shopify voided) — don't re-surface them
       if(rec.stage==='cancelled') continue;
 
-      // Auto-advance fulfilled → in_delivery
-      if(order.fulfillment_status==='fulfilled' && rec.stage==='confirmed'){
+      // Auto-advance fulfilled → in_delivery (only for non-voided open orders)
+      if(!isVoided && !isCancelled && order.fulfillment_status==='fulfilled' && rec.stage==='confirmed'){
         await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
         rec={...rec,stage:'in_delivery'};
       }
@@ -811,7 +839,7 @@ async function loadAll(){
     if(Array.isArray(sbRecs)){
       const shopifyIds=new Set(orders.map(o=>String(o.id)));
       sbRecs.forEach(rec=>{
-        if(!shopifyIds.has(rec.shopify_order_id)&&['in_delivery','collected','returning','on_hold'].includes(rec.stage))
+        if(!shopifyIds.has(rec.shopify_order_id)&&['in_delivery','collected','returning','on_hold','cancelled_voided'].includes(rec.stage))
           merged.push({order:null,rec});
       });
     }
@@ -881,14 +909,15 @@ const STAGE_META={
   in_delivery:     { label:'In Delivery',       color:'blue'   },
   collected:       { label:'Collected',         color:'teal'   },
   returning:       { label:'Returning',         color:'orange' },
-  on_hold:         { label:'On Hold — Edit',    color:'red'    }
+  on_hold:         { label:'On Hold — Edit',    color:'red'    },
+  cancelled_voided:{ label:'Cancelled / Voided',color:'grey'   }
 };
 
 function renderPipeline(merged){
   // Build order lookup map so we don't inject full JSON into onclick attributes
   orderMap={};
   merged.forEach(({order,rec})=>{ if(order) orderMap[String(rec.shopify_order_id)]=order; });
-  const stages={awaiting_deposit:[],confirmed:[],in_delivery:[],collected:[],returning:[],on_hold:[]};
+  const stages={awaiting_deposit:[],confirmed:[],in_delivery:[],collected:[],returning:[],on_hold:[],cancelled_voided:[]};
   merged.forEach(item=>{ const s=item.rec.stage||'awaiting_deposit'; if(stages[s]) stages[s].push(item); });
   const isOp=currentRole==='operator';
   let html='';
@@ -945,6 +974,7 @@ function renderCard(stage,order,rec,isOp){
   if(isPaidOnline&&stage==='confirmed') badges+=`<div class="badge paid-online">✅ Payment Verified — Ready to Ship</div>`;
   if(stage==='returning'&&rec.return_reason) badges+=`<div class="badge return">↩ ${rec.return_reason}</div>`;
   if(attempts>0&&stage==='in_delivery') badges+=`<div class="badge attempts">Attempt ${attempts}/3</div>`;
+  if(stage==='cancelled_voided') badges+=`<div class="badge return" style="background:#f5f5f4;color:#57534e;border-color:#d6d3d1">${order&&order.financial_status==='voided'?'🚫 Payment Voided':'✕ Cancelled'} — ${order&&order.cancel_reason?order.cancel_reason:'Shopify'}</div>`;
   if(stage==='in_delivery' && order && hasShippedByAccurateTag(order)) badges+=`<div class="badge attempts" style="background:#f0f9ff;color:#075985;border-color:#7dd3fc">📦 Accurate Courier</div>`;
 
   const esc=s=>String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
@@ -1029,6 +1059,10 @@ function renderCard(stage,order,rec,isOp){
         <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — edit requested')">✕ Cancel Order</button>`;
     } else if(stage==='collected'){
       actions=`<div style="font-size:.68rem;color:var(--s-teal);font-family:'DM Mono',monospace;text-align:center;padding:.2rem">✓ Archived as Paid on Shopify</div>`;
+    } else if(stage==='cancelled_voided'){
+      const isVoidedCard = order && order.financial_status==='voided';
+      const voidLabel = isVoidedCard ? '🚫 Voided on Shopify' : '✕ Cancelled on Shopify';
+      actions=`<div style="font-size:.68rem;color:#78716c;font-family:'DM Mono',monospace;text-align:center;padding:.2rem;background:#f5f5f4;border-radius:6px">${voidLabel}</div>`;
     }
   }
 
@@ -1057,8 +1091,8 @@ function renderCard(stage,order,rec,isOp){
 }
 
 function updateStats(merged){
-  const c={awaiting_deposit:0,confirmed:0,in_delivery:0,collected:0,returning:0,on_hold:0};
-  const v={awaiting_deposit:0,confirmed:0,in_delivery:0,collected:0};
+  const c={awaiting_deposit:0,confirmed:0,in_delivery:0,collected:0,returning:0,on_hold:0,cancelled_voided:0};
+  const v={awaiting_deposit:0,confirmed:0,in_delivery:0,collected:0,cancelled_voided:0};
   let exp=0;
   merged.forEach(({order,rec})=>{
     const s=rec.stage||'awaiting_deposit';
@@ -1070,7 +1104,7 @@ function updateStats(merged){
       if(d>=6) exp++;
     }
   });
-  const ALL_STAGES=['awaiting_deposit','confirmed','in_delivery','collected','returning','on_hold'];
+  const ALL_STAGES=['awaiting_deposit','confirmed','in_delivery','collected','returning','on_hold','cancelled_voided'];
   ALL_STAGES.forEach(s=>{ const tc=document.getElementById('tc-'+s); if(tc) tc.textContent=c[s]||0; });
   document.getElementById('stat-total').textContent=merged.length;
   document.getElementById('stat-s1').textContent=c.awaiting_deposit;
@@ -1079,11 +1113,13 @@ function updateStats(merged){
   document.getElementById('stat-s4').textContent=c.collected;
   document.getElementById('stat-s5').textContent=c.returning;
   document.getElementById('stat-s6').textContent=c.on_hold;
+  document.getElementById('stat-s7').textContent=c.cancelled_voided;
   const fmt=n=>n.toLocaleString('en-EG',{maximumFractionDigits:0});
   document.getElementById('stat-v1').textContent=fmt(v.awaiting_deposit);
   document.getElementById('stat-v2').textContent=fmt(v.confirmed);
   document.getElementById('stat-v3').textContent=fmt(v.in_delivery);
   document.getElementById('stat-v4').textContent=fmt(v.collected);
+  document.getElementById('stat-v7').textContent=fmt(v.cancelled_voided);
   document.getElementById('stat-expiring').textContent=exp;
 }
 
