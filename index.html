@@ -60,7 +60,6 @@
   .stat-value.blue{color:var(--s-blue)}     .stat-value.teal{color:var(--s-teal)}
   .stat-value.orange{color:var(--s-orange)} .stat-value.red{color:var(--s-red)}
   .stat-divider{width:1px;background:rgba(255,255,255,.08);align-self:stretch;flex-shrink:0}
-  .stat-sublabel{font-family:'DM Mono',monospace;font-size:.5rem;color:var(--text-muted);letter-spacing:.05em}
 
   /* TABS */
   .tab-bar{display:none;background:var(--brown);border-bottom:1px solid rgba(255,255,255,.08);overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap}
@@ -390,29 +389,19 @@
   <div class="view-only-bar" id="view-only-bar">👁 View-only — Contact Asmaa to make changes</div>
 
   <div class="stats-bar">
-    <div class="stat-item">
-      <span class="stat-label">🟡 Awaiting Delivery</span>
-      <span class="stat-value yellow" id="stat-val-awaiting">—</span>
-      <span class="stat-sublabel" id="stat-cnt-awaiting">— orders</span>
-    </div>
+    <div class="stat-item"><span class="stat-label">Total Orders</span><span class="stat-value" id="stat-total">—</span></div>
     <div class="stat-divider"></div>
-    <div class="stat-item">
-      <span class="stat-label">🟢 Confirmed</span>
-      <span class="stat-value green" id="stat-val-confirmed">—</span>
-      <span class="stat-sublabel" id="stat-cnt-confirmed">— orders</span>
-    </div>
+    <div class="stat-item"><span class="stat-label">Awaiting</span><span class="stat-value yellow" id="stat-s1">—</span></div>
+    <div class="stat-item"><span class="stat-label" style="font-size:.5rem">EGP</span><span class="stat-value yellow" style="font-size:.78rem" id="stat-v1">—</span></div>
     <div class="stat-divider"></div>
-    <div class="stat-item">
-      <span class="stat-label">🚚 In Delivery</span>
-      <span class="stat-value blue" id="stat-val-delivery">—</span>
-      <span class="stat-sublabel" id="stat-cnt-delivery">— orders</span>
-    </div>
+    <div class="stat-item"><span class="stat-label">Confirmed</span><span class="stat-value green" id="stat-s2">—</span></div>
+    <div class="stat-item"><span class="stat-label" style="font-size:.5rem">EGP</span><span class="stat-value green" style="font-size:.78rem" id="stat-v2">—</span></div>
     <div class="stat-divider"></div>
-    <div class="stat-item">
-      <span class="stat-label">✅ Collected</span>
-      <span class="stat-value teal" id="stat-val-collected">—</span>
-      <span class="stat-sublabel" id="stat-cnt-collected">— orders</span>
-    </div>
+    <div class="stat-item"><span class="stat-label">In Delivery</span><span class="stat-value blue" id="stat-s3">—</span></div>
+    <div class="stat-item"><span class="stat-label" style="font-size:.5rem">EGP</span><span class="stat-value blue" style="font-size:.78rem" id="stat-v3">—</span></div>
+    <div class="stat-divider"></div>
+    <div class="stat-item"><span class="stat-label">Collected</span><span class="stat-value teal" id="stat-s4">—</span></div>
+    <div class="stat-item"><span class="stat-label" style="font-size:.5rem">EGP</span><span class="stat-value teal" style="font-size:.78rem" id="stat-v4">—</span></div>
     <div class="stat-divider"></div>
     <div class="stat-item"><span class="stat-label">Returning</span><span class="stat-value orange" id="stat-s5">—</span></div>
     <div class="stat-divider"></div>
@@ -628,13 +617,15 @@ async function cancelShopifyOrder(orderId) {
   }));
 
   // 3. Ask Shopify to calculate the restock (this automatically finds the correct location_id)
+  // refund_shipping:true ensures any shipping amount is also included in the void/cancel
   console.log('[cancel] Calculating restock locations...');
   const calcResponse = await shopifyFetch(`orders/${orderId}/refunds/calculate.json`, 'POST', {
-      refund: { refund_line_items: refundLineItems }
+      refund: { refund_line_items: refundLineItems, refund_shipping: true }
   });
 
   // 4. Submit the formal $0 refund to restock the inventory securely
-  console.log('[cancel] Executing restock...');
+  // Ensure shipping refund amount is included from calculated response
+  console.log('[cancel] Executing restock + shipping void...');
   await shopifyFetch(`orders/${orderId}/refunds.json`, 'POST', {
       refund: calcResponse.refund
   });
@@ -710,9 +701,21 @@ async function updateShopifyOrderItems(orderId, lineItemUpdates){
   return shopifyFetch(`orders/${orderId}.json`,'PUT',{order:{id:Number(orderId), line_items:lineItemUpdates}});
 }
 
-// ════════════════════════════════════════
-// SUPABASE
-// ════════════════════════════════════════
+// ── Asmaa's Arabic shipping-confirmed phrases ──────────────────────────────
+const ARABIC_CONFIRMED_PHRASES = [
+  'تم تحويل مصاريف الشحن',
+  'تم دفع مصاريف الشحن',
+  'تم تحويل مصاريف  الشحن', // double-space variant
+];
+function hasArabicConfirmation(note){
+  if(!note) return false;
+  return ARABIC_CONFIRMED_PHRASES.some(p => note.includes(p));
+}
+function hasShippedByAccurateTag(order){
+  if(!order) return false;
+  const tags = (order.tags||'').split(',').map(t=>t.trim().toLowerCase());
+  return tags.includes('shipped-by-accurate');
+}
 async function sbFetch(path,method='GET',body=null){
   const res=await fetch(`${SB_URL}/rest/v1/${path}`,{
     method,
@@ -751,12 +754,16 @@ async function loadAll(){
 
       if(!rec){
         // Determine initial stage:
+        // shipped-by-accurate tag → in_delivery
         // paid online → confirmed directly
         // pending + fulfilled → in_delivery
+        // Arabic shipping confirmation note → confirmed
         // pending → awaiting_deposit
         let initialStage='awaiting_deposit';
-        if(isPaidOnline) initialStage='confirmed';
+        if(hasShippedByAccurateTag(order)) initialStage='in_delivery';
+        else if(isPaidOnline) initialStage='confirmed';
         else if(order.fulfillment_status==='fulfilled') initialStage='in_delivery';
+        else if(hasArabicConfirmation(order.note)) initialStage='confirmed';
 
         const newRec={
           shopify_order_id:sid,
@@ -776,24 +783,22 @@ async function loadAll(){
           await updateRecord(sid,{stage:'confirmed',payment_source:'paid_online',deposit_confirmed_at:new Date().toISOString()});
           rec={...rec,stage:'confirmed',payment_source:'paid_online'};
         }
+        // If Asmaa added Arabic shipping confirmation and order is still awaiting, auto-confirm
+        if(rec.stage==='awaiting_deposit' && !isPaidOnline && hasArabicConfirmation(order && order.note)){
+          await updateRecord(sid,{stage:'confirmed',deposit_confirmed_at:new Date().toISOString(),deposit_confirmed_by:'Asmaa (auto)'});
+          rec={...rec,stage:'confirmed'};
+        }
+        // If tag shipped-by-accurate appears and order not yet in delivery or beyond, advance
+        if(hasShippedByAccurateTag(order) && ['awaiting_deposit','confirmed'].includes(rec.stage)){
+          await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
+          rec={...rec,stage:'in_delivery'};
+        }
       }
 
       // Skip already-cancelled records — don't re-surface them
       if(rec.stage==='cancelled') continue;
 
-      // Auto-promote: if Asmaa added a shipping-confirmed note on Shopify and order is still unfulfilled
-      // Phrases: تم تحويل الشحن  or  تم دفع الشحن
-      const ASMAA_CONFIRMED_PHRASES = ['تم تحويل الشحن', 'تم دفع الشحن'];
-      const shopifyNote = (order && order.note) || '';
-      const hasAsmaaConfirmation = ASMAA_CONFIRMED_PHRASES.some(p => shopifyNote.includes(p));
-      if(
-        hasAsmaaConfirmation &&
-        rec.stage === 'awaiting_deposit' &&
-        order.fulfillment_status !== 'fulfilled'
-      ){
-        await updateRecord(sid, { stage: 'confirmed', deposit_confirmed_at: new Date().toISOString() });
-        rec = { ...rec, stage: 'confirmed' };
-      }
+      // Auto-advance fulfilled → in_delivery
       if(order.fulfillment_status==='fulfilled' && rec.stage==='confirmed'){
         await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
         rec={...rec,stage:'in_delivery'};
@@ -935,14 +940,12 @@ function renderCard(stage,order,rec,isOp){
 
   // Status badges
   let badges='';
-  const shopifyNoteRaw = (order && order.note) || '';
-  const ASMAA_PHRASES = ['تم تحويل الشحن', 'تم دفع الشحن'];
-  const isAsmaaConfirmed = ASMAA_PHRASES.some(p => shopifyNoteRaw.includes(p));
+  if(stage==='confirmed' && hasArabicConfirmation(note)) badges+=`<div class="badge paid-online" style="background:#f0fdf4;color:#15803d;border-color:#86efac">🔤 Auto-confirmed — Asmaa note</div>`;
   if(isHold&&(stage==='confirmed'||stage==='on_hold')) badges+=`<div class="badge hold">🔧 HOLD — Edit Pending${rec.edit_note?' · '+rec.edit_note:''}</div>`;
-  if(isAsmaaConfirmed&&stage==='confirmed') badges+=`<div class="badge paid-online">📋 شحن مؤكد من أسماء</div>`;
-  else if(isPaidOnline&&stage==='confirmed') badges+=`<div class="badge paid-online">✅ Payment Verified — Ready to Ship</div>`;
+  if(isPaidOnline&&stage==='confirmed') badges+=`<div class="badge paid-online">✅ Payment Verified — Ready to Ship</div>`;
   if(stage==='returning'&&rec.return_reason) badges+=`<div class="badge return">↩ ${rec.return_reason}</div>`;
   if(attempts>0&&stage==='in_delivery') badges+=`<div class="badge attempts">Attempt ${attempts}/3</div>`;
+  if(stage==='in_delivery' && order && hasShippedByAccurateTag(order)) badges+=`<div class="badge attempts" style="background:#f0f9ff;color:#075985;border-color:#7dd3fc">📦 Accurate Courier</div>`;
 
   const esc=s=>String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
   const shopifyLink=`https://muhrastore-2.myshopify.com/admin/orders/${sid}`;
@@ -1059,8 +1062,8 @@ function updateStats(merged){
   let exp=0;
   merged.forEach(({order,rec})=>{
     const s=rec.stage||'awaiting_deposit';
-    const price=parseFloat(rec.total_price||(order?order.total_price:0)||0);
     if(c[s]!==undefined) c[s]++;
+    const price=parseFloat(rec.total_price||(order?order.total_price:0)||0);
     if(v[s]!==undefined) v[s]+=price;
     if(s==='awaiting_deposit'&&!(rec.payment_source==='paid_online')){
       const d=Math.floor((Date.now()-new Date(rec.created_at_shopify||(order?order.created_at:Date.now())))/86400000);
@@ -1069,22 +1072,18 @@ function updateStats(merged){
   });
   const ALL_STAGES=['awaiting_deposit','confirmed','in_delivery','collected','returning','on_hold'];
   ALL_STAGES.forEach(s=>{ const tc=document.getElementById('tc-'+s); if(tc) tc.textContent=c[s]||0; });
-
-  const fmt=n=>'EGP '+n.toLocaleString('en-EG',{maximumFractionDigits:0});
-
-  // Money stats for the 4 key financial columns
-  document.getElementById('stat-val-awaiting').textContent  = fmt(v.awaiting_deposit);
-  document.getElementById('stat-cnt-awaiting').textContent  = c.awaiting_deposit+' orders';
-  document.getElementById('stat-val-confirmed').textContent = fmt(v.confirmed);
-  document.getElementById('stat-cnt-confirmed').textContent = c.confirmed+' orders';
-  document.getElementById('stat-val-delivery').textContent  = fmt(v.in_delivery);
-  document.getElementById('stat-cnt-delivery').textContent  = c.in_delivery+' orders';
-  document.getElementById('stat-val-collected').textContent = fmt(v.collected);
-  document.getElementById('stat-cnt-collected').textContent = c.collected+' orders';
-
-  // Count-only for returning & on_hold
+  document.getElementById('stat-total').textContent=merged.length;
+  document.getElementById('stat-s1').textContent=c.awaiting_deposit;
+  document.getElementById('stat-s2').textContent=c.confirmed;
+  document.getElementById('stat-s3').textContent=c.in_delivery;
+  document.getElementById('stat-s4').textContent=c.collected;
   document.getElementById('stat-s5').textContent=c.returning;
   document.getElementById('stat-s6').textContent=c.on_hold;
+  const fmt=n=>n.toLocaleString('en-EG',{maximumFractionDigits:0});
+  document.getElementById('stat-v1').textContent=fmt(v.awaiting_deposit);
+  document.getElementById('stat-v2').textContent=fmt(v.confirmed);
+  document.getElementById('stat-v3').textContent=fmt(v.in_delivery);
+  document.getElementById('stat-v4').textContent=fmt(v.collected);
   document.getElementById('stat-expiring').textContent=exp;
 }
 
@@ -1569,14 +1568,7 @@ function cancelOrder(sid,num,name,reason){
         // Step 1: cancel on Shopify FIRST — this is the source of truth
         try{
           await cancelShopifyOrder(sid);
-          console.log('[cancel] Shopify cancel succeeded for', sid);
-          // Step 1b: restock inventory
-          try{
-            await restockShopifyOrder(sid);
-            console.log('[restock] inventory restocked for', sid);
-          }catch(restockErr){
-            console.warn('[restock] restock failed (non-blocking):', restockErr.message);
-          }
+          console.log('[cancel] Shopify cancel + restock + shipping void succeeded for', sid);
         }catch(shopifyErr){
           console.error('[cancel] Shopify cancel FAILED for', sid, shopifyErr.message);
           showToast(`Shopify error: ${shopifyErr.message}`,'error');
