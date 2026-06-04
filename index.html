@@ -524,31 +524,141 @@ header {
 .fin-input    { font-family: var(--mono); font-size: .78rem; color: var(--navy-3); border: none; outline: none; width: 78px; text-align: right; background: transparent; }
 
 /* ── RESPONSIVE ──────────────────── */
-@media(max-width:900px) {
-  .tab-bar { display: block; }
-  .pipeline { padding: .875rem; }
-  .order-row { grid-template-columns: 1fr; }
-  .row-cell-border { border-left: none; border-top: 1px solid var(--line); }
-  .cell-actions { max-width: none; border-top: 1px solid var(--line); }
-  .stage-nav { display: none; }
-  .stats-bar { display: none; }
-  .items-popup-overlay { align-items: flex-end; }
-  .editor-drawer { max-height: 95vh; }
-  header { padding: .6rem 1rem; gap: .5rem; }
-}
-@media(min-width:901px) {
-  .tab-bar { display: none; }
-  .items-popup { border-radius: var(--r-lg); margin: auto; max-height: 80vh; }
-  .items-popup-overlay { align-items: center; padding: 1rem; }
-  .editor-overlay { align-items: center; padding: 1rem; }
-  .editor-drawer { border-radius: var(--r-xl); max-height: 85vh; }
-}
+
+/* Mobile-only combined price+phone row — hidden on desktop */
+.cell-price-phone-mobile { display: none; }
+
+/* Large → slightly tighter */
 @media(max-width:1300px) {
   .order-row { grid-template-columns: 90px 1fr 100px 190px auto; }
 }
 @media(max-width:1050px) {
   .order-row { grid-template-columns: 90px 1fr 100px 180px auto; }
-  .cell-actions { min-width: 160px; }
+  .cell-actions { min-width: 155px; }
+}
+
+/* ── MOBILE (≤768px): clean card layout ── */
+@media(max-width:768px) {
+  header { padding: .55rem 1rem; gap: .45rem; flex-wrap: wrap; }
+  .date-range-label { display: none; }
+  .header-brand { font-size: .82rem; letter-spacing: .22em; }
+  .stats-bar { padding: .45rem 1rem; }
+  .stat-item { padding: .2rem .6rem; }
+  .stat-value { font-size: .8rem; }
+  .stage-nav { padding: 0 .75rem; }
+  .stage-tab { padding: .6rem .75rem; font-size: .66rem; min-height: 40px; }
+  .control-bar { padding: .5rem 1rem; gap: .35rem; flex-wrap: wrap; }
+  .control-label { display: none; }
+  .control-divider { display: none; }
+  .control-search { width: 100%; flex: 1; }
+  .result-count { margin-left: auto; }
+  .pipeline { padding: .65rem .85rem 3rem; gap: .55rem; }
+  .panel-header { padding: .6rem .85rem; }
+
+  /* ── Order row becomes a vertical card ── */
+  .order-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+  }
+  /* Remove column dividers; rows use bottom border naturally */
+  .row-cell-border { border-left: none; }
+
+  /* Line 1: #Order + Date + Countdown badge */
+  .cell-id {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: .45rem;
+    padding: .55rem .85rem .18rem;
+    flex-wrap: nowrap;
+  }
+  .cell-id .order-num  { white-space: nowrap; }
+  .cell-id .order-date { white-space: nowrap; }
+  .cell-id .countdown  { margin-left: auto; flex-shrink: 0; }
+
+  /* Line 2: Customer name + tags + items */
+  .cell-customer {
+    padding: .14rem .85rem .28rem;
+  }
+  .cell-customer .customer-name { font-size: .88rem; }
+  .cell-customer .order-meta-row { margin-top: .22rem; gap: .35rem; }
+
+  /* Hide desktop-only price column and info/phone column */
+  .cell-price { display: none; }
+  .cell-info  { display: none; }
+
+  /* Line 3: Price + Phone — dedicated mobile row */
+  .cell-price-phone-mobile {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    padding: .28rem .85rem .35rem;
+  }
+  .mobile-price {
+    font-family: var(--mono);
+    font-size: .84rem;
+    font-weight: 600;
+    color: var(--navy-3);
+    flex-shrink: 0;
+  }
+  .cell-price-phone-mobile .phone-row {
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+    gap: .35rem;
+  }
+  .cell-price-phone-mobile .phone-call {
+    font-size: .6rem;
+    padding: .2rem .46rem;
+    white-space: nowrap;
+  }
+  .cell-price-phone-mobile .phone-wa {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    flex-shrink: 0;
+  }
+
+  /* Line 4: Action buttons — full-width strip */
+  .cell-actions {
+    min-width: 0;
+    max-width: none;
+    padding: .42rem .85rem .55rem;
+    border-top: 1px solid var(--line);
+    background: var(--surface-1);
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: .28rem;
+    justify-content: flex-start;
+    align-items: center;
+  }
+  .cell-actions .card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .28rem;
+    width: 100%;
+  }
+  .cell-actions .btn-action {
+    font-size: .65rem;
+    padding: .35rem .6rem;
+    flex-shrink: 0;
+  }
+
+  /* Popups slide up from bottom on mobile */
+  .items-popup-overlay { align-items: flex-end; padding: 0; }
+  .items-popup { border-radius: var(--r-xl) var(--r-xl) 0 0; max-height: 75vh; }
+  .editor-overlay { align-items: flex-end; padding: 0; }
+  .editor-drawer  { border-radius: var(--r-xl) var(--r-xl) 0 0; max-height: 95vh; }
+}
+
+/* Desktop popups centered */
+@media(min-width:769px) {
+  .items-popup { border-radius: var(--r-lg); margin: auto; max-height: 80vh; }
+  .items-popup-overlay { align-items: center; padding: 1rem; }
+  .editor-overlay { align-items: center; padding: 1rem; }
+  .editor-drawer { border-radius: var(--r-xl); max-height: 85vh; }
 }
 </style>
 </head>
@@ -1443,11 +1553,18 @@ function renderRow(stage,order,rec,isOp){
     <div class="row-cell cell-price row-cell-border">
       <div class="order-price">EGP ${price.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
     </div>
-    <div class="row-cell cell-info row-cell-border">
+    <div class="row-cell cell-info row-cell-border" data-price="EGP ${price.toLocaleString('en-EG',{minimumFractionDigits:2})}">
       ${phone?`<div class="phone-row" style="margin:0">
         <a class="phone-call" href="tel:+${phoneNorm.replace(/^00/,'')}">📞 ${phoneNorm}</a>
         <a class="phone-wa" href="https://wa.me/${phoneNorm.replace(/^00/,'')}" target="_blank" rel="noopener">${WA_SVG}</a>
       </div>`:'<span style="font-size:.62rem;color:var(--subtle);font-family:var(--mono)">—</span>'}
+    </div>
+    <div class="row-cell cell-price-phone-mobile">
+      <div class="mobile-price">EGP ${price.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
+      ${phone?`<div class="phone-row" style="margin:0">
+        <a class="phone-call" href="tel:+${phoneNorm.replace(/^00/,'')}">📞 ${phoneNorm}</a>
+        <a class="phone-wa" href="https://wa.me/${phoneNorm.replace(/^00/,'')}" target="_blank" rel="noopener">${WA_SVG}</a>
+      </div>`:''}
     </div>
     <div class="row-cell cell-actions row-cell-border">
       ${actions?`<div class="card-actions" style="width:100%">${actions}</div>`:''}
