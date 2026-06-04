@@ -1700,6 +1700,10 @@ function renderEditorBody(){
     (editorOrderObj&&(editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity)));
 
   document.getElementById('editor-body').innerHTML=`
+    <div style="background:#FEF6E6;border:1px solid #F5D68A;border-radius:8px;padding:.6rem .85rem;margin-bottom:.85rem;font-size:.7rem;color:#7A5200;line-height:1.5">
+      <strong>ℹ Order Edit API</strong> — item changes, quantities, and discount will be applied via Shopify's GraphQL Order Editing API.
+      If the API is unavailable, changes are logged as a note and you'll be directed to Shopify Admin.
+    </div>
     <div class="editor-summary">
       <div>
         <div class="editor-summary-label">Order Total</div>
@@ -1875,6 +1879,21 @@ function addProductToOrder(variantIndex){
   renderEditorBody();
 }
 
+// ── GraphQL via Proxy ──────────────────────────────────────────────────────
+async function shopifyGraphQL(query, variables={}){
+  const res=await fetch(PROXY,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':SB_KEY},
+    body:JSON.stringify({path:'graphql.json',method:'POST',body:{query,variables}})
+  });
+  if(!res.ok){ const t=await res.text(); throw new Error(`GraphQL ${res.status}: ${t}`); }
+  const json=await res.json();
+  // Proxy may wrap the response; unwrap if needed
+  const data=json.data||json;
+  if(data.errors&&data.errors.length) throw new Error(data.errors.map(e=>e.message).join('; '));
+  return data;
+}
+
 async function saveOrderEdits(){
   const btn=document.getElementById('btn-save-order');
   btn.disabled=true; btn.innerHTML='<span class="ri" style="animation:spin .8s linear infinite;display:inline-block">↻</span> Saving…';
@@ -1887,60 +1906,176 @@ async function saveOrderEdits(){
     const subtotal=editorItems.reduce((s,i)=>i.removed?s:s+(i.price*i.quantity),0);
     const grandTotal=Math.max(0,subtotal-disc)+ship;
 
-    // Build change summary
-    const newItems=editorItems.filter(i=>i.isNew&&!i.removed);
-    const removedIds=editorItems.filter(i=>!i.isNew&&i.removed).map(i=>i.line_item_id);
-    const qtyChanges=editorItems.filter(i=>!i.isNew&&!i.removed&&editorOrderObj&&(editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity));
-    let changeSummary='';
-    if(removedIds.length) changeSummary+=`Removed ${removedIds.length} item(s). `;
-    if(newItems.length) changeSummary+=`Added: ${newItems.map(i=>`${i.title} ×${i.quantity}`).join(', ')}. `;
-    if(qtyChanges.length) changeSummary+=`Qty changed: ${qtyChanges.map(i=>`${i.title} → ×${i.quantity}`).join(', ')}. `;
+    const newItems   =editorItems.filter(i=>i.isNew&&!i.removed);
+    const removedItems=editorItems.filter(i=>!i.isNew&&i.removed);
+    const qtyChanges =editorItems.filter(i=>!i.isNew&&!i.removed&&editorOrderObj&&
+      (editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity));
     const origDisc=parseFloat(editorOrderObj&&editorOrderObj.total_discounts||0);
-    const origShip=parseFloat(editorOrderObj&&editorOrderObj.shipping_lines&&editorOrderObj.shipping_lines[0]&&editorOrderObj.shipping_lines[0].price||0);
-    if(disc!==origDisc) changeSummary+=`Discount: EGP ${disc}. `;
-    if(ship!==origShip) changeSummary+=`Shipping: EGP ${ship}. `;
+    const origShip=parseFloat(editorOrderObj&&editorOrderObj.shipping_lines&&
+      editorOrderObj.shipping_lines[0]&&editorOrderObj.shipping_lines[0].price||0);
 
-    // 1. Build Shopify order PUT payload
-    const orderPayload={id:Number(editorOrderId), note};
-    // Apply discount via discount_codes override (flat manual discount)
-    if(disc>0) orderPayload.discount_codes=[{code:'MANUAL',amount:disc.toFixed(2),type:'fixed_amount'}];
-    else orderPayload.discount_codes=[];
-    // Shipping override
-    if(ship!==origShip) orderPayload.shipping_lines=[{title:'Shipping',price:ship.toFixed(2),code:'CUSTOM'}];
+    const hasItemChanges = newItems.length>0 || removedItems.length>0 || qtyChanges.length>0;
+    const hasFinancialChanges = disc!==origDisc || ship!==origShip;
 
-    await shopifyFetch(`orders/${editorOrderId}.json`,'PUT',{order:orderPayload});
+    let graphqlSuccess = false;
+    let graphqlErrors  = [];
 
-    // 2. Quantity updates on existing items
-    const existingUpdates=editorItems.filter(i=>!i.isNew&&!i.removed).map(i=>({id:i.line_item_id,quantity:i.quantity}));
-    if(existingUpdates.length>0){
-      try{ await updateShopifyOrderItems(editorOrderId,existingUpdates); }
-      catch(e){ console.warn('Line item qty update:',e.message); }
+    // ── 1. GraphQL Order Edit API (item changes + custom discount) ────────────
+    if(hasItemChanges || hasFinancialChanges){
+      try{
+        // Step 1: Begin edit session
+        const beginResult = await shopifyGraphQL(`
+          mutation beginEdit($id: ID!) {
+            orderEditBegin(id: $id) {
+              calculatedOrder { id }
+              userErrors { field message }
+            }
+          }`,{ id: `gid://shopify/Order/${editorOrderId}` }
+        );
+
+        const calcOrderRaw = beginResult.orderEditBegin||beginResult.data?.orderEditBegin;
+        if(calcOrderRaw?.userErrors?.length) throw new Error(calcOrderRaw.userErrors.map(e=>e.message).join('; '));
+        const calcId = calcOrderRaw?.calculatedOrder?.id;
+        if(!calcId) throw new Error('Could not begin order edit session');
+
+        // Step 2: Remove items
+        for(const item of removedItems){
+          await shopifyGraphQL(`
+            mutation removeItem($id: ID!, $lineItemId: ID!) {
+              orderEditRemoveLineItem(id: $id, lineItemId: $lineItemId) {
+                calculatedOrder { id }
+                userErrors { field message }
+              }
+            }`,{ id: calcId, lineItemId: `gid://shopify/LineItem/${item.line_item_id}` }
+          );
+        }
+
+        // Step 3: Change quantities on existing items
+        for(const item of qtyChanges){
+          await shopifyGraphQL(`
+            mutation setQty($id: ID!, $lineItemId: ID!, $quantity: Int!, $restock: Boolean!) {
+              orderEditSetQuantity(id: $id, lineItemId: $lineItemId, quantity: $quantity, restock: $restock) {
+                calculatedOrder { id }
+                userErrors { field message }
+              }
+            }`,{ id: calcId, lineItemId: `gid://shopify/LineItem/${item.line_item_id}`,
+                 quantity: item.quantity, restock: false }
+          );
+        }
+
+        // Step 4: Add new items (by variant ID)
+        for(const item of newItems){
+          if(item.variant_id){
+            await shopifyGraphQL(`
+              mutation addItem($id: ID!, $variantId: ID!, $quantity: Int!) {
+                orderEditAddLineItem(id: $id, variantId: $variantId, quantity: $quantity) {
+                  calculatedLineItem { id }
+                  userErrors { field message }
+                }
+              }`,{ id: calcId, variantId: `gid://shopify/ProductVariant/${item.variant_id}`,
+                   quantity: item.quantity }
+            );
+          }
+        }
+
+        // Step 5: Apply custom discount if changed
+        if(disc!==origDisc && disc>0){
+          await shopifyGraphQL(`
+            mutation addDiscount($id: ID!, $discount: OrderEditAppliedDiscountInput!) {
+              orderEditAddCustomItem(id: $id, title: "Manual Discount", quantity: 1,
+                price: {amount: "-${disc.toFixed(2)}", currencyCode: "EGP"}) {
+                calculatedLineItem { id }
+                userErrors { field message }
+              }
+            }`,{ id: calcId, discount: { value: disc, valueType: 'FIXED_AMOUNT', description: 'Manual discount' } }
+          );
+        }
+
+        // Step 6: Commit the edit
+        const commitResult = await shopifyGraphQL(`
+          mutation commit($id: ID!, $notify: Boolean!) {
+            orderEditCommit(id: $id, notifyCustomer: $notify, staffNote: "Edited via COD Dashboard") {
+              order { id name }
+              userErrors { field message }
+            }
+          }`,{ id: calcId, notify: false }
+        );
+
+        const commitRaw = commitResult.orderEditCommit||commitResult.data?.orderEditCommit;
+        if(commitRaw?.userErrors?.length) throw new Error(commitRaw.userErrors.map(e=>e.message).join('; '));
+        graphqlSuccess = true;
+
+      } catch(gqlErr){
+        // GraphQL failed — fall back to note-only approach
+        console.error('[GraphQL Order Edit] Failed:', gqlErr.message);
+        graphqlErrors.push(gqlErr.message);
+      }
     }
 
-    // If there are new items, flag for Shopify Admin completion and append note
-    if(newItems.length>0){
-      const addNote=`\n⚙ Operator added items (complete in Shopify Admin): ${newItems.map(i=>`${i.title} ×${i.quantity} @ EGP ${i.price}`).join(', ')}`;
-      await addOrderNote(editorOrderId,(note||'')+(changeSummary?'\n🔄 Changes: '+changeSummary:'')+addNote);
-      showToast('Items added — complete in Shopify Admin for new SKUs','warn');
-    } else if(changeSummary){
-      const fullNote=(note||'')+(changeSummary?'\n🔄 Changes on '+fmtDate(new Date())+': '+changeSummary:'');
-      await addOrderNote(editorOrderId, fullNote);
+    // ── 2. REST fallback — always update note regardless ────────────────────
+    // Build a clear change summary for the Shopify note
+    let changeSummary='';
+    if(removedItems.length) changeSummary+=`Removed: ${removedItems.map(i=>i.title).join(', ')}. `;
+    if(newItems.length)     changeSummary+=`Added: ${newItems.map(i=>`${i.title} ×${i.quantity} @ EGP ${i.price}`).join(', ')}. `;
+    if(qtyChanges.length)   changeSummary+=`Qty changed: ${qtyChanges.map(i=>`${i.title} → ×${i.quantity}`).join(', ')}. `;
+    if(disc!==origDisc)     changeSummary+=`Discount: EGP ${disc}. `;
+    if(ship!==origShip)     changeSummary+=`Shipping: EGP ${ship}. `;
+
+    // If GraphQL failed, prepend a ⚠ flag so operator knows to fix in Shopify Admin
+    const notePrefix = graphqlErrors.length
+      ? `⚠ MANUAL ACTION NEEDED in Shopify Admin (API edit failed):\n${changeSummary}\n\n`
+      : (graphqlSuccess && changeSummary ? `✅ Edited via COD Dashboard: ${changeSummary}\n\n` : '');
+
+    const fullNote = notePrefix + (note||'');
+    await addOrderNote(editorOrderId, fullNote.trim());
+
+    // ── 3. Shipping override via REST (best-effort, Shopify may ignore) ──────
+    if(ship!==origShip && !graphqlSuccess){
+      try{
+        await shopifyFetch(`orders/${editorOrderId}.json`,'PUT',{
+          order:{id:Number(editorOrderId), shipping_lines:[{title:'Shipping',price:ship.toFixed(2),code:'CUSTOM'}]}
+        });
+      }catch(e){ console.warn('Shipping REST update ignored by Shopify:', e.message); }
     }
 
-    // 3. Update Supabase record with new total and note
-
+    // ── 4. Always update Supabase with new calculated total ──────────────────
     await updateRecord(editorOrderId,{
       total_price: grandTotal,
       notes: note,
+      edit_flagged: graphqlErrors.length>0,
+      edit_note: graphqlErrors.length>0 ? `Auto-edit failed: ${graphqlErrors[0].slice(0,120)}` : '',
       updated_at: new Date().toISOString()
     });
 
-    showToast('Order updated & synced to Shopify ✓','success');
-    closeEditor();
-    loadAll();
+    // ── 5. Result feedback ───────────────────────────────────────────────────
+    if(graphqlErrors.length){
+      showToast('⚠ Shopify edit API failed — changes logged as note. Fix in Shopify Admin.','warn');
+      // Keep editor open so operator can see what failed
+      btn.disabled=false;
+      btn.innerHTML='<span>💾</span> Retry / Close';
+      // Show inline error in editor
+      const body=document.getElementById('editor-body');
+      const errBanner=document.createElement('div');
+      errBanner.style.cssText='background:#FDF0EE;border:1px solid #F0A09A;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.74rem;color:#AC2419;line-height:1.5;';
+      errBanner.innerHTML=`<strong>⚠ Shopify edit API not available</strong><br>
+        Changes have been logged as a note on the order. Please open Shopify Admin and apply these changes manually:<br>
+        <div style="margin-top:.5rem;font-family:monospace;font-size:.7rem;background:#fff3f2;padding:.5rem;border-radius:4px">${changeSummary||'See note on order'}</div>
+        <a href="https://muhrastore-2.myshopify.com/admin/orders/${editorOrderId}" target="_blank"
+           style="display:inline-block;margin-top:.6rem;padding:.3rem .7rem;background:#AC2419;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;font-size:.68rem">
+          → Open in Shopify Admin
+        </a>`;
+      body.prepend(errBanner);
+    } else {
+      showToast(graphqlSuccess ? 'Order edited on Shopify ✓' : 'Note saved ✓','success');
+      closeEditor();
+      loadAll();
+    }
+
   }catch(e){
-    showToast('Error saving: '+e.message,'error');
-    btn.disabled=false; btn.innerHTML='<span>💾</span> Save & Sync to Shopify';
+    console.error('[saveOrderEdits]',e);
+    showToast('Error: '+e.message,'error');
+    btn.disabled=false;
+    btn.innerHTML='<span>💾</span> Save & Sync to Shopify';
   }
 }
 
