@@ -1227,12 +1227,12 @@ async function loadAll(){
       const isArchivedPaid = isPaidOnline && order.status==='closed' && !isVoided;
 
       if(!rec){
-        // Voided / cancelled-on-Shopify wins over everything else
+        // Voided/cancelled wins first, then POS/paid wins over everything else
         let initialStage='awaiting_deposit';
-        if(isVoided || isCancelled)         initialStage='cancelled_voided';
-        else if(isArchivedPaid)             initialStage='collected';
-        else if(hasShippedByAccurateTag(order)) initialStage='in_delivery';
-        else if(isPaidOnline)               initialStage='collected';
+        if(isVoided || isCancelled)              initialStage='cancelled_voided';
+        else if(isPaidOnline)                    initialStage='collected';   // POS/paid → always collected
+        else if(isArchivedPaid)                  initialStage='collected';
+        else if(hasShippedByAccurateTag(order))  initialStage='in_delivery';
         else if(order.fulfillment_status==='fulfilled') initialStage='in_delivery';
         else if(hasArabicConfirmation(order.note)) initialStage='confirmed';
 
@@ -1257,23 +1257,24 @@ async function loadAll(){
             rec={...rec,stage:'cancelled_voided'};
           }
         } else {
-          // Normal promotion rules only run when order is NOT voided/cancelled
-          if(isPaidOnline && rec.stage==='awaiting_deposit'){
+          // ── POS / Paid Online: ALWAYS move to collected, regardless of current stage ──
+          // This catches orders that were manually moved to in_delivery/confirmed before the POS fix existed
+          if(isPaidOnline && rec.stage !== 'collected' && rec.stage !== 'cancelled_voided'){
             await updateRecord(sid,{stage:'collected',payment_source:'paid_online',deposit_confirmed_at:new Date().toISOString()});
             rec={...rec,stage:'collected',payment_source:'paid_online'};
           }
-          // Arabic shipping confirmation note → confirm
+          // Arabic shipping confirmation note → confirm (COD only)
           if(rec.stage==='awaiting_deposit' && !isPaidOnline && hasArabicConfirmation(order && order.note)){
             await updateRecord(sid,{stage:'confirmed',deposit_confirmed_at:new Date().toISOString(),deposit_confirmed_by:'Asmaa (auto)'});
             rec={...rec,stage:'confirmed'};
           }
-          // shipped-by-accurate tag → move to in_delivery (only from pre-delivery stages)
-          if(hasShippedByAccurateTag(order) && ['awaiting_deposit','confirmed'].includes(rec.stage)){
+          // shipped-by-accurate tag → move to in_delivery (only from pre-delivery stages, COD only)
+          if(!isPaidOnline && hasShippedByAccurateTag(order) && ['awaiting_deposit','confirmed'].includes(rec.stage)){
             await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
             rec={...rec,stage:'in_delivery'};
           }
-          // Already-paid+archived orders that somehow appear with an existing record but wrong stage
-          if(isArchivedPaid && rec.stage==='awaiting_deposit'){
+          // Already-paid+archived orders with wrong stage (belt-and-suspenders)
+          if(isArchivedPaid && rec.stage!=='collected' && rec.stage!=='cancelled_voided'){
             await updateRecord(sid,{stage:'collected'});
             rec={...rec,stage:'collected'};
           }
@@ -1284,8 +1285,8 @@ async function loadAll(){
       // Only skip orphan internal 'cancelled' records that have no order data (shouldn't normally occur)
       if(rec.stage==='cancelled' && !isVoided && !isCancelled) continue;
 
-      // Auto-advance fulfilled → in_delivery (only for non-voided open orders)
-      if(!isVoided && !isCancelled && order.fulfillment_status==='fulfilled' && rec.stage==='confirmed'){
+      // Auto-advance fulfilled → in_delivery (only for non-voided open COD orders — never for paid online)
+      if(!isVoided && !isCancelled && !isPaidOnline && order.fulfillment_status==='fulfilled' && rec.stage==='confirmed'){
         await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
         rec={...rec,stage:'in_delivery'};
       }
