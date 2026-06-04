@@ -1880,204 +1880,140 @@ function addProductToOrder(variantIndex){
 }
 
 // ── GraphQL via Proxy ──────────────────────────────────────────────────────
-async function shopifyGraphQL(query, variables={}){
-  const res=await fetch(PROXY,{
-    method:'POST',
-    headers:{'Content-Type':'application/json','apikey':SB_KEY},
-    body:JSON.stringify({path:'graphql.json',method:'POST',body:{query,variables}})
-  });
-  if(!res.ok){ const t=await res.text(); throw new Error(`GraphQL ${res.status}: ${t}`); }
-  const json=await res.json();
-  // Proxy may wrap the response; unwrap if needed
-  const data=json.data||json;
-  if(data.errors&&data.errors.length) throw new Error(data.errors.map(e=>e.message).join('; '));
-  return data;
+
+// ── Shopify Admin base URL ──────────────────────────────────────────────────
+const SHOPIFY_ADMIN = 'https://muhrastore-2.myshopify.com/admin/orders';
+
+// ── Pending save data (set during review, consumed on confirm) ──────────────
+let _pendingSaveData = null;
+
+// saveOrderEdits = entry point → goes straight to review screen
+async function saveOrderEdits(){ reviewOrderEdits(); }
+
+function reviewOrderEdits(){
+  const btn=document.getElementById('btn-save-order');
+  const noteField=document.getElementById('editor-note-field');
+  const note=noteField?noteField.value.trim():editorNote;
+  const disc=editorDiscount||0;
+  const ship=editorShipping||0;
+  const subtotal=editorItems.reduce((s,i)=>i.removed?s:s+(i.price*i.quantity),0);
+  const grandTotal=Math.max(0,subtotal-disc)+ship;
+
+  const newItems    =editorItems.filter(i=>i.isNew&&!i.removed);
+  const removedItems=editorItems.filter(i=>!i.isNew&&i.removed);
+  const qtyChanges  =editorItems.filter(i=>!i.isNew&&!i.removed&&editorOrderObj&&
+    (editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity));
+  const origDisc=parseFloat(editorOrderObj&&editorOrderObj.total_discounts||0);
+  const origShip=parseFloat(editorOrderObj&&editorOrderObj.shipping_lines&&
+    editorOrderObj.shipping_lines[0]&&editorOrderObj.shipping_lines[0].price||0);
+
+  const hasChanges=newItems.length||removedItems.length||qtyChanges.length||disc!==origDisc||ship!==origShip||note!==editorNote;
+  if(!hasChanges){ showToast('No changes to save','info'); return; }
+
+  _pendingSaveData={note,disc,ship,grandTotal,newItems,removedItems,qtyChanges,origDisc,origShip};
+
+  // Build change rows
+  const esc2=s=>String(s).replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let rows='';
+  removedItems.forEach(i=>{ rows+=`<div class="chg-row chg-remove"><span class="chg-icon">✕</span><span>Remove <strong>${esc2(i.title)}</strong></span></div>`; });
+  newItems.forEach(i=>{ rows+=`<div class="chg-row chg-add"><span class="chg-icon">＋</span><span>Add <strong>${esc2(i.title)}</strong> ×${i.quantity} — EGP ${(i.price*i.quantity).toLocaleString('en-EG',{minimumFractionDigits:2})}</span></div>`; });
+  qtyChanges.forEach(i=>{ rows+=`<div class="chg-row chg-qty"><span class="chg-icon">⇄</span><span>Change qty <strong>${esc2(i.title)}</strong> → ×${i.quantity}</span></div>`; });
+  if(disc!==origDisc) rows+=`<div class="chg-row chg-fin"><span class="chg-icon">🏷</span><span>Discount: EGP ${origDisc} → <strong>EGP ${disc}</strong></span></div>`;
+  if(ship!==origShip) rows+=`<div class="chg-row chg-fin"><span class="chg-icon">🚚</span><span>Shipping: EGP ${origShip} → <strong>EGP ${ship}</strong></span></div>`;
+  if(note&&note!==editorNote) rows+=`<div class="chg-row chg-note"><span class="chg-icon">📝</span><span>Note: <em>${esc2(note.slice(0,80))}${note.length>80?'…':''}</em></span></div>`;
+
+  document.getElementById('editor-body').innerHTML=`
+    <style>
+      .chg-row{display:flex;align-items:flex-start;gap:.55rem;padding:.5rem .7rem;border-radius:8px;font-size:.74rem;line-height:1.5;margin-bottom:.32rem}
+      .chg-icon{flex-shrink:0;width:18px;text-align:center;margin-top:.05rem}
+      .chg-remove{background:#FDF0EE;color:#AC2419;border:1px solid #F0A09A}
+      .chg-add{background:#E8F7EF;color:#1A7A48;border:1px solid #8FD4AC}
+      .chg-qty{background:#E8EFF9;color:#1562B8;border:1px solid #90B8F0}
+      .chg-fin{background:#FEF6E6;color:#B97D0A;border:1px solid #F5D68A}
+      .chg-note{background:var(--surface-1);color:var(--muted);border:1px solid var(--line)}
+    </style>
+
+    <div style="background:#FFF3CD;border:1px solid #F5D68A;border-radius:10px;padding:.85rem 1rem;margin-bottom:1rem;display:flex;gap:.65rem;align-items:flex-start">
+      <span style="font-size:1.1rem;flex-shrink:0">⚠</span>
+      <div>
+        <div style="font-size:.74rem;font-weight:700;color:#7A5200;margin-bottom:.3rem">Shopify API cannot edit orders — manual step required</div>
+        <div style="font-size:.7rem;color:#7A5200;line-height:1.6">
+          <strong>Step 1:</strong> Open Shopify Admin and apply the changes listed below.<br>
+          <strong>Step 2:</strong> Come back here and click <strong>✓ I've Done It — Update Dashboard</strong>.
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:.58rem;font-weight:700;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:.5rem">Changes to make in Shopify</div>
+    ${rows}
+
+    <div style="background:var(--navy);border-radius:10px;padding:.7rem 1rem;display:flex;justify-content:space-between;align-items:center;margin:.9rem 0">
+      <span style="font-family:var(--mono);font-size:.58rem;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em">New Total to Collect</span>
+      <span style="font-family:var(--mono);font-size:1rem;font-weight:600;color:var(--gold)">EGP ${grandTotal.toLocaleString('en-EG',{minimumFractionDigits:2})}</span>
+    </div>
+
+    <a href="${SHOPIFY_ADMIN}/${editorOrderId}" target="_blank" rel="noopener"
+       style="display:flex;align-items:center;justify-content:center;gap:.5rem;width:100%;padding:.72rem;background:#1A6B1A;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:.78rem;margin-bottom:.5rem;box-shadow:0 2px 8px rgba(26,107,26,.25)">
+      🔗 Open Order ${editorOrderObj?.name||('#'+editorOrderId)} in Shopify Admin
+    </a>
+    <div style="font-size:.62rem;color:var(--muted);text-align:center;margin-bottom:.9rem">
+      Apply all changes above, then click the button below to update the COD dashboard.
+    </div>
+  `;
+
+  // Swap save button → confirm button
+  btn.textContent='✓ I\'ve Done It — Update Dashboard';
+  btn.onclick=confirmSaveEdits;
+  btn.style.cssText='flex:1;padding:.62rem;background:var(--c-confirm);color:#fff;border:none;border-radius:var(--r-md);font-size:.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.42rem';
+
+  // Swap discard → back
+  const discardBtn=document.querySelector('.btn-discard');
+  discardBtn.textContent='← Back';
+  discardBtn.onclick=()=>{
+    _pendingSaveData=null;
+    renderEditorBody();
+    const b=document.getElementById('btn-save-order');
+    b.innerHTML='<span>💾</span> Save & Sync to Shopify';
+    b.onclick=saveOrderEdits;
+    b.style.cssText='';
+    const d=document.querySelector('.btn-discard');
+    d.textContent='Discard';
+    d.onclick=closeEditor;
+  };
 }
 
-async function saveOrderEdits(){
+async function confirmSaveEdits(){
+  if(!_pendingSaveData) return;
   const btn=document.getElementById('btn-save-order');
-  btn.disabled=true; btn.innerHTML='<span class="ri" style="animation:spin .8s linear infinite;display:inline-block">↻</span> Saving…';
+  btn.disabled=true;
+  btn.textContent='Saving…';
+
+  const {note,disc,ship,grandTotal,newItems,removedItems,qtyChanges,origDisc,origShip}=_pendingSaveData;
 
   try{
-    const noteField=document.getElementById('editor-note-field');
-    const note=noteField?noteField.value.trim():editorNote;
-    const disc=editorDiscount||0;
-    const ship=editorShipping||0;
-    const subtotal=editorItems.reduce((s,i)=>i.removed?s:s+(i.price*i.quantity),0);
-    const grandTotal=Math.max(0,subtotal-disc)+ship;
+    let summary='';
+    if(removedItems.length) summary+=`Removed: ${removedItems.map(i=>i.title).join(', ')}. `;
+    if(newItems.length)     summary+=`Added: ${newItems.map(i=>`${i.title} ×${i.quantity} @ EGP ${i.price}`).join(', ')}. `;
+    if(qtyChanges.length)   summary+=`Qty: ${qtyChanges.map(i=>`${i.title}→×${i.quantity}`).join(', ')}. `;
+    if(disc!==origDisc)     summary+=`Discount EGP ${disc}. `;
+    if(ship!==origShip)     summary+=`Shipping EGP ${ship}. `;
 
-    const newItems   =editorItems.filter(i=>i.isNew&&!i.removed);
-    const removedItems=editorItems.filter(i=>!i.isNew&&i.removed);
-    const qtyChanges =editorItems.filter(i=>!i.isNew&&!i.removed&&editorOrderObj&&
-      (editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity));
-    const origDisc=parseFloat(editorOrderObj&&editorOrderObj.total_discounts||0);
-    const origShip=parseFloat(editorOrderObj&&editorOrderObj.shipping_lines&&
-      editorOrderObj.shipping_lines[0]&&editorOrderObj.shipping_lines[0].price||0);
+    const fullNote=`✅ Manually edited in Shopify Admin on ${fmtDate(new Date())}. ${summary}\n\n${note||''}`.trim();
+    await addOrderNote(editorOrderId, fullNote);
+    await updateRecord(editorOrderId,{total_price:grandTotal,notes:note||'',edit_flagged:false,edit_note:'',updated_at:new Date().toISOString()});
 
-    const hasItemChanges = newItems.length>0 || removedItems.length>0 || qtyChanges.length>0;
-    const hasFinancialChanges = disc!==origDisc || ship!==origShip;
-
-    let graphqlSuccess = false;
-    let graphqlErrors  = [];
-
-    // ── 1. GraphQL Order Edit API (item changes + custom discount) ────────────
-    if(hasItemChanges || hasFinancialChanges){
-      try{
-        // Step 1: Begin edit session
-        const beginResult = await shopifyGraphQL(`
-          mutation beginEdit($id: ID!) {
-            orderEditBegin(id: $id) {
-              calculatedOrder { id }
-              userErrors { field message }
-            }
-          }`,{ id: `gid://shopify/Order/${editorOrderId}` }
-        );
-
-        const calcOrderRaw = beginResult.orderEditBegin||beginResult.data?.orderEditBegin;
-        if(calcOrderRaw?.userErrors?.length) throw new Error(calcOrderRaw.userErrors.map(e=>e.message).join('; '));
-        const calcId = calcOrderRaw?.calculatedOrder?.id;
-        if(!calcId) throw new Error('Could not begin order edit session');
-
-        // Step 2: Remove items
-        for(const item of removedItems){
-          await shopifyGraphQL(`
-            mutation removeItem($id: ID!, $lineItemId: ID!) {
-              orderEditRemoveLineItem(id: $id, lineItemId: $lineItemId) {
-                calculatedOrder { id }
-                userErrors { field message }
-              }
-            }`,{ id: calcId, lineItemId: `gid://shopify/LineItem/${item.line_item_id}` }
-          );
-        }
-
-        // Step 3: Change quantities on existing items
-        for(const item of qtyChanges){
-          await shopifyGraphQL(`
-            mutation setQty($id: ID!, $lineItemId: ID!, $quantity: Int!, $restock: Boolean!) {
-              orderEditSetQuantity(id: $id, lineItemId: $lineItemId, quantity: $quantity, restock: $restock) {
-                calculatedOrder { id }
-                userErrors { field message }
-              }
-            }`,{ id: calcId, lineItemId: `gid://shopify/LineItem/${item.line_item_id}`,
-                 quantity: item.quantity, restock: false }
-          );
-        }
-
-        // Step 4: Add new items (by variant ID)
-        for(const item of newItems){
-          if(item.variant_id){
-            await shopifyGraphQL(`
-              mutation addItem($id: ID!, $variantId: ID!, $quantity: Int!) {
-                orderEditAddLineItem(id: $id, variantId: $variantId, quantity: $quantity) {
-                  calculatedLineItem { id }
-                  userErrors { field message }
-                }
-              }`,{ id: calcId, variantId: `gid://shopify/ProductVariant/${item.variant_id}`,
-                   quantity: item.quantity }
-            );
-          }
-        }
-
-        // Step 5: Apply custom discount if changed
-        if(disc!==origDisc && disc>0){
-          await shopifyGraphQL(`
-            mutation addDiscount($id: ID!, $discount: OrderEditAppliedDiscountInput!) {
-              orderEditAddCustomItem(id: $id, title: "Manual Discount", quantity: 1,
-                price: {amount: "-${disc.toFixed(2)}", currencyCode: "EGP"}) {
-                calculatedLineItem { id }
-                userErrors { field message }
-              }
-            }`,{ id: calcId, discount: { value: disc, valueType: 'FIXED_AMOUNT', description: 'Manual discount' } }
-          );
-        }
-
-        // Step 6: Commit the edit
-        const commitResult = await shopifyGraphQL(`
-          mutation commit($id: ID!, $notify: Boolean!) {
-            orderEditCommit(id: $id, notifyCustomer: $notify, staffNote: "Edited via COD Dashboard") {
-              order { id name }
-              userErrors { field message }
-            }
-          }`,{ id: calcId, notify: false }
-        );
-
-        const commitRaw = commitResult.orderEditCommit||commitResult.data?.orderEditCommit;
-        if(commitRaw?.userErrors?.length) throw new Error(commitRaw.userErrors.map(e=>e.message).join('; '));
-        graphqlSuccess = true;
-
-      } catch(gqlErr){
-        // GraphQL failed — fall back to note-only approach
-        console.error('[GraphQL Order Edit] Failed:', gqlErr.message);
-        graphqlErrors.push(gqlErr.message);
-      }
-    }
-
-    // ── 2. REST fallback — always update note regardless ────────────────────
-    // Build a clear change summary for the Shopify note
-    let changeSummary='';
-    if(removedItems.length) changeSummary+=`Removed: ${removedItems.map(i=>i.title).join(', ')}. `;
-    if(newItems.length)     changeSummary+=`Added: ${newItems.map(i=>`${i.title} ×${i.quantity} @ EGP ${i.price}`).join(', ')}. `;
-    if(qtyChanges.length)   changeSummary+=`Qty changed: ${qtyChanges.map(i=>`${i.title} → ×${i.quantity}`).join(', ')}. `;
-    if(disc!==origDisc)     changeSummary+=`Discount: EGP ${disc}. `;
-    if(ship!==origShip)     changeSummary+=`Shipping: EGP ${ship}. `;
-
-    // If GraphQL failed, prepend a ⚠ flag so operator knows to fix in Shopify Admin
-    const notePrefix = graphqlErrors.length
-      ? `⚠ MANUAL ACTION NEEDED in Shopify Admin (API edit failed):\n${changeSummary}\n\n`
-      : (graphqlSuccess && changeSummary ? `✅ Edited via COD Dashboard: ${changeSummary}\n\n` : '');
-
-    const fullNote = notePrefix + (note||'');
-    await addOrderNote(editorOrderId, fullNote.trim());
-
-    // ── 3. Shipping override via REST (best-effort, Shopify may ignore) ──────
-    if(ship!==origShip && !graphqlSuccess){
-      try{
-        await shopifyFetch(`orders/${editorOrderId}.json`,'PUT',{
-          order:{id:Number(editorOrderId), shipping_lines:[{title:'Shipping',price:ship.toFixed(2),code:'CUSTOM'}]}
-        });
-      }catch(e){ console.warn('Shipping REST update ignored by Shopify:', e.message); }
-    }
-
-    // ── 4. Always update Supabase with new calculated total ──────────────────
-    await updateRecord(editorOrderId,{
-      total_price: grandTotal,
-      notes: note,
-      edit_flagged: graphqlErrors.length>0,
-      edit_note: graphqlErrors.length>0 ? `Auto-edit failed: ${graphqlErrors[0].slice(0,120)}` : '',
-      updated_at: new Date().toISOString()
-    });
-
-    // ── 5. Result feedback ───────────────────────────────────────────────────
-    if(graphqlErrors.length){
-      showToast('⚠ Shopify edit API failed — changes logged as note. Fix in Shopify Admin.','warn');
-      // Keep editor open so operator can see what failed
-      btn.disabled=false;
-      btn.innerHTML='<span>💾</span> Retry / Close';
-      // Show inline error in editor
-      const body=document.getElementById('editor-body');
-      const errBanner=document.createElement('div');
-      errBanner.style.cssText='background:#FDF0EE;border:1px solid #F0A09A;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem;font-size:.74rem;color:#AC2419;line-height:1.5;';
-      errBanner.innerHTML=`<strong>⚠ Shopify edit API not available</strong><br>
-        Changes have been logged as a note on the order. Please open Shopify Admin and apply these changes manually:<br>
-        <div style="margin-top:.5rem;font-family:monospace;font-size:.7rem;background:#fff3f2;padding:.5rem;border-radius:4px">${changeSummary||'See note on order'}</div>
-        <a href="https://muhrastore-2.myshopify.com/admin/orders/${editorOrderId}" target="_blank"
-           style="display:inline-block;margin-top:.6rem;padding:.3rem .7rem;background:#AC2419;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;font-size:.68rem">
-          → Open in Shopify Admin
-        </a>`;
-      body.prepend(errBanner);
-    } else {
-      showToast(graphqlSuccess ? 'Order edited on Shopify ✓' : 'Note saved ✓','success');
-      closeEditor();
-      loadAll();
-    }
-
+    _pendingSaveData=null;
+    showToast(`Dashboard updated ✓ — new total EGP ${grandTotal.toLocaleString('en-EG',{minimumFractionDigits:2})}`,'success');
+    closeEditor();
+    loadAll();
   }catch(e){
-    console.error('[saveOrderEdits]',e);
+    console.error('[confirmSaveEdits]',e);
     showToast('Error: '+e.message,'error');
     btn.disabled=false;
-    btn.innerHTML='<span>💾</span> Save & Sync to Shopify';
+    btn.textContent='✓ I\'ve Done It — Update Dashboard';
   }
 }
+
 
 // ════════════════════════════════════════
 // ACTIONS — AWAITING DEPOSIT
