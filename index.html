@@ -269,7 +269,7 @@ header {
 
 .order-row {
   display: grid;
-  grid-template-columns: 90px 1fr 110px 130px auto;
+  grid-template-columns: 90px 1fr 110px 200px auto;
   gap: 0;
   border-bottom: 1px solid var(--line);
   transition: background .15s;
@@ -304,7 +304,7 @@ header {
 .cell-price .pay-source { margin-top: .25rem; }
 
 /* Info cell — badges, phone, note */
-.cell-info { gap: .3rem; }
+.cell-info { gap: .3rem; overflow: visible; }
 
 /* Actions cell */
 .cell-actions { align-items: stretch; justify-content: center; padding: .6rem .75rem; gap: .32rem; min-width: 180px; max-width: 220px; }
@@ -385,10 +385,10 @@ header {
 .note-save { align-self: flex-end; padding: .28rem .7rem; background: var(--navy-3); color: #EDE9E0; border: none; border-radius: var(--r-sm); font-family: var(--font); font-size: .66rem; font-weight: 500; cursor: pointer; transition: background .2s; }
 .note-save:hover { background: var(--gold); color: var(--navy); }
 
-.phone-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
-.phone-call { font-family: var(--mono); font-size: .7rem; color: var(--navy-3); text-decoration: none; font-weight: 500; display: flex; align-items: center; gap: .28rem; padding: .26rem .6rem; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-pill); transition: all .2s; }
+.phone-row { display: flex; align-items: center; gap: .4rem; flex-wrap: nowrap; }
+.phone-call { font-family: var(--mono); font-size: .62rem; color: var(--navy-3); text-decoration: none; font-weight: 500; display: flex; align-items: center; gap: .22rem; padding: .22rem .5rem; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-pill); transition: all .2s; white-space: nowrap; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .phone-call:hover { background: var(--navy); color: #EDE9E0; border-color: var(--navy); }
-.phone-wa { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: #EDFBEE; border: 1px solid #A8E0AA; border-radius: 50%; transition: all .2s; flex-shrink: 0; text-decoration: none; }
+.phone-wa { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; min-width: 26px; background: #EDFBEE; border: 1px solid #A8E0AA; border-radius: 50%; transition: all .2s; flex-shrink: 0; text-decoration: none; }
 .phone-wa:hover { background: #25D366; transform: scale(1.1); }
 .phone-wa:hover svg { fill: #fff; }
 
@@ -543,9 +543,12 @@ header {
   .editor-overlay { align-items: center; padding: 1rem; }
   .editor-drawer { border-radius: var(--r-xl); max-height: 85vh; }
 }
-@media(max-width:1100px) {
-  .order-row { grid-template-columns: 90px 1fr 110px auto; }
-  .cell-info { display: none; }
+@media(max-width:1300px) {
+  .order-row { grid-template-columns: 90px 1fr 100px 190px auto; }
+}
+@media(max-width:1050px) {
+  .order-row { grid-template-columns: 90px 1fr 100px 180px auto; }
+  .cell-actions { min-width: 160px; }
 }
 </style>
 </head>
