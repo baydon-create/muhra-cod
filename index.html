@@ -1071,38 +1071,72 @@ async function getOrders(){
 }
 
 async function cancelShopifyOrder(orderId) {
-  console.log('[cancel] Shopify restock & cancel call for', orderId);
-  
-  // 1. Get the line items from your existing local dashboard cache
+  console.log('[cancel] Starting full void for order', orderId);
+
   const order = orderMap[orderId];
   if (!order || !order.line_items) {
-      throw new Error("Order data not found. Please refresh the page and try again.");
+    throw new Error("Order data not found. Please refresh the page and try again.");
   }
 
-  // 2. Prepare the items for restocking using 'cancel' restock type
+  // ── Step 1: Prepare line items for restocking ──────────────────────────────
   const refundLineItems = order.line_items.map(item => ({
-      line_item_id: item.id,
-      quantity: item.quantity,
-      restock_type: "cancel" 
+    line_item_id: item.id,
+    quantity: item.quantity,
+    restock_type: "cancel"
   }));
 
-  // 3. Ask Shopify to calculate the restock (this automatically finds the correct location_id)
-  // refund_shipping:true ensures any shipping amount is also included in the void/cancel
-  console.log('[cancel] Calculating restock locations...');
+  // ── Step 2: Calculate refund (gets location IDs + shipping amount) ─────────
+  console.log('[cancel] Calculating full refund including shipping...');
   const calcResponse = await shopifyFetch(`orders/${orderId}/refunds/calculate.json`, 'POST', {
-      refund: { refund_line_items: refundLineItems, refund_shipping: true }
+    refund: {
+      refund_line_items: refundLineItems,
+      refund_shipping:   true,   // tells Shopify to include shipping in calculation
+      shipping:          { full_refund: true }  // explicitly request full shipping void
+    }
   });
 
-  // 4. Submit the formal $0 refund to restock the inventory securely
-  // Ensure shipping refund amount is included from calculated response
-  console.log('[cancel] Executing restock + shipping void...');
-  await shopifyFetch(`orders/${orderId}/refunds.json`, 'POST', {
-      refund: calcResponse.refund
+  const calc = calcResponse.refund || {};
+
+  // ── Step 3: Build the actual refund payload from calculated values ──────────
+  // The calculate endpoint returns the exact amounts; we pass them back verbatim
+  // to ensure shipping is zeroed — never reconstruct manually.
+  const shippingAmount = calc.shipping
+    ? parseFloat(calc.shipping.amount || calc.shipping.maximum_refundable || 0)
+    : 0;
+
+  console.log('[cancel] Shipping to void:', shippingAmount, '| Line items:', calc.refund_line_items?.length);
+
+  const refundPayload = {
+    refund: {
+      // Restock the items
+      refund_line_items: calc.refund_line_items || refundLineItems.map(i => ({
+        line_item_id: i.line_item_id,
+        quantity: i.quantity,
+        restock_type: 'cancel'
+      })),
+      // Void the shipping — use calculated amount
+      shipping: { amount: shippingAmount.toFixed(2) },
+      // transactions: empty array = $0 cash back (void/write-off, not actual refund to customer)
+      transactions: [],
+      // Notify: false — no email to customer
+      notify: false
+    }
+  };
+
+  // ── Step 4: Submit the refund to zero out items + shipping ─────────────────
+  console.log('[cancel] Submitting zero-balance refund...');
+  await shopifyFetch(`orders/${orderId}/refunds.json`, 'POST', refundPayload);
+
+  // ── Step 5: Cancel the order on Shopify ───────────────────────────────────
+  // After the refund, the order balance should be EGP 0.
+  // cancel.json finalises the cancellation and marks it as Cancelled.
+  console.log('[cancel] Cancelling order...');
+  const result = await shopifyFetch(`orders/${orderId}/cancel.json`, 'POST', {
+    reason: 'customer',
+    email:  false      // don't send cancellation email
   });
 
-  // 5. Update the order status to Canceled
-  console.log('[cancel] Cancelling order status...');
-  const result = await shopifyFetch(`orders/${orderId}/cancel.json`, 'POST', {});
+  console.log('[cancel] Done — order fully voided including shipping.');
   return result;
 }
 
