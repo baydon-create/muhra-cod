@@ -173,47 +173,147 @@ header {
 .control-search:focus { border-color: var(--gold); box-shadow: 0 0 0 2.5px var(--gold-dim); width: 188px; }
 .result-count { font-family: var(--mono); font-size: .58rem; color: var(--muted); margin-left: auto; white-space: nowrap; }
 
-/* ── PIPELINE KANBAN ─────────────── */
-.pipeline { display: grid; grid-template-columns: repeat(7,1fr); gap: 1rem; padding: 1.25rem 1.75rem 4rem; align-items: start; background: var(--surface-1); }
-.col { display: flex; flex-direction: column; gap: .55rem; }
-
-.col-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: .6rem .85rem; border-radius: var(--r-md);
-  position: sticky; z-index: 10;
+/* ── STAGE TABS ──────────────────── */
+.stage-nav {
   background: var(--surface-0);
-  border: 1px solid var(--line);
-  border-left-width: 4px;
-  box-shadow: var(--shadow-xs);
+  border-bottom: 1px solid var(--line);
+  padding: 0 1.75rem;
+  display: flex; gap: 0; overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  position: sticky; z-index: 88;
+  box-shadow: 0 1px 0 var(--line);
 }
-.col-header.yellow { border-left-color: var(--c-await);   background: var(--c-await-bg);   border-color: var(--c-await-line); border-left-color: var(--c-await); }
-.col-header.green  { border-left-color: var(--c-confirm); background: var(--c-confirm-bg); border-color: var(--c-confirm-line); border-left-color: var(--c-confirm); }
-.col-header.blue   { border-left-color: var(--c-deliver); background: var(--c-deliver-bg); border-color: var(--c-deliver-line); border-left-color: var(--c-deliver); }
-.col-header.teal   { border-left-color: var(--c-collect); background: var(--c-collect-bg); border-color: var(--c-collect-line); border-left-color: var(--c-collect); }
-.col-header.orange { border-left-color: var(--c-return);  background: var(--c-return-bg);  border-color: var(--c-return-line);  border-left-color: var(--c-return); }
-.col-header.red    { border-left-color: var(--c-hold);    background: var(--c-hold-bg);    border-color: var(--c-hold-line);   border-left-color: var(--c-hold); }
-.col-header.grey   { border-left-color: var(--c-void);    background: var(--c-void-bg);    border-color: var(--c-void-line);   border-left-color: var(--c-void); }
+.stage-nav::-webkit-scrollbar { display: none; }
+.stage-tab {
+  display: inline-flex; align-items: center; gap: .42rem;
+  padding: .75rem 1rem; min-height: 44px;
+  font-family: var(--font); font-size: .72rem; font-weight: 500;
+  color: var(--muted); background: transparent; border: none;
+  border-bottom: 2.5px solid transparent;
+  cursor: pointer; transition: all .2s ease; white-space: nowrap;
+  letter-spacing: .01em; position: relative;
+}
+.stage-tab:hover { color: var(--navy-3); }
+.stage-tab.active { color: var(--navy-3); }
+.stage-tab.active.yellow { border-bottom-color: var(--c-await); color: var(--c-await); }
+.stage-tab.active.green  { border-bottom-color: var(--c-confirm); color: var(--c-confirm); }
+.stage-tab.active.blue   { border-bottom-color: var(--c-deliver); color: var(--c-deliver); }
+.stage-tab.active.teal   { border-bottom-color: var(--c-collect); color: var(--c-collect); }
+.stage-tab.active.orange { border-bottom-color: var(--c-return);  color: var(--c-return); }
+.stage-tab.active.red    { border-bottom-color: var(--c-hold);    color: var(--c-hold); }
+.stage-tab.active.grey   { border-bottom-color: var(--c-void);    color: var(--c-void); }
+.stage-tab-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.stage-tab.yellow .stage-tab-dot { background: var(--c-await); }
+.stage-tab.green  .stage-tab-dot { background: var(--c-confirm); }
+.stage-tab.blue   .stage-tab-dot { background: var(--c-deliver); }
+.stage-tab.teal   .stage-tab-dot { background: var(--c-collect); }
+.stage-tab.orange .stage-tab-dot { background: var(--c-return); }
+.stage-tab.red    .stage-tab-dot { background: var(--c-hold); }
+.stage-tab.grey   .stage-tab-dot { background: var(--c-void); }
+.stage-tab-count {
+  font-family: var(--mono); font-size: .54rem; font-weight: 600;
+  padding: .1rem .38rem; border-radius: var(--r-pill);
+  background: var(--surface-2); color: var(--muted);
+}
+.stage-tab.active .stage-tab-count { background: var(--gold-dim); color: var(--gold); }
 
-.col-title { display: flex; align-items: center; gap: .38rem; font-size: .62rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--navy-3); }
-.col-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.yellow .col-dot { background: var(--c-await);   }
-.green  .col-dot { background: var(--c-confirm); }
-.blue   .col-dot { background: var(--c-deliver); }
-.teal   .col-dot { background: var(--c-collect); }
-.orange .col-dot { background: var(--c-return);  }
-.red    .col-dot { background: var(--c-hold);    }
-.grey   .col-dot { background: var(--c-void);    }
+/* ── PIPELINE / LIST VIEW ────────── */
+.pipeline {
+  padding: 1.25rem 1.75rem 4rem;
+  background: var(--surface-1);
+  min-height: 60vh;
+}
+.stage-panel { display: none; }
+.stage-panel.active { display: block; }
 
-.col-count { font-family: var(--mono); font-size: .58rem; padding: .1rem .42rem; border-radius: var(--r-pill); font-weight: 600; }
-.yellow .col-count { background: rgba(185,125,10,.14);  color: var(--c-await);   }
-.green  .col-count { background: rgba(26,122,72,.14);   color: var(--c-confirm); }
-.blue   .col-count { background: rgba(21,98,184,.14);   color: var(--c-deliver); }
-.teal   .col-count { background: rgba(13,120,105,.14);  color: var(--c-collect); }
-.orange .col-count { background: rgba(188,94,8,.14);    color: var(--c-return);  }
-.red    .col-count { background: rgba(172,36,25,.14);   color: var(--c-hold);    }
-.grey   .col-count { background: rgba(96,92,87,.14);    color: var(--c-void);    }
+/* Stage panel header bar */
+.panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 1rem; padding: .7rem 1rem;
+  background: var(--surface-0); border: 1px solid var(--line);
+  border-left: 4px solid var(--line-2);
+  border-radius: var(--r-md); box-shadow: var(--shadow-xs);
+}
+.panel-header.yellow { border-left-color: var(--c-await);   background: var(--c-await-bg); }
+.panel-header.green  { border-left-color: var(--c-confirm); background: var(--c-confirm-bg); }
+.panel-header.blue   { border-left-color: var(--c-deliver); background: var(--c-deliver-bg); }
+.panel-header.teal   { border-left-color: var(--c-collect); background: var(--c-collect-bg); }
+.panel-header.orange { border-left-color: var(--c-return);  background: var(--c-return-bg); }
+.panel-header.red    { border-left-color: var(--c-hold);    background: var(--c-hold-bg); }
+.panel-header.grey   { border-left-color: var(--c-void);    background: var(--c-void-bg); }
 
-/* ── ORDER CARDS ─────────────────── */
+.panel-title { display: flex; align-items: center; gap: .5rem; font-size: .75rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--navy-3); }
+.panel-dot { width: 8px; height: 8px; border-radius: 50%; }
+.yellow .panel-dot { background: var(--c-await); }
+.green  .panel-dot { background: var(--c-confirm); }
+.blue   .panel-dot { background: var(--c-deliver); }
+.teal   .panel-dot { background: var(--c-collect); }
+.orange .panel-dot { background: var(--c-return); }
+.red    .panel-dot { background: var(--c-hold); }
+.grey   .panel-dot { background: var(--c-void); }
+
+.panel-count-badge {
+  font-family: var(--mono); font-size: .62rem; font-weight: 600;
+  padding: .18rem .52rem; border-radius: var(--r-pill);
+}
+.yellow .panel-count-badge { background: rgba(185,125,10,.14); color: var(--c-await); }
+.green  .panel-count-badge { background: rgba(26,122,72,.14);  color: var(--c-confirm); }
+.blue   .panel-count-badge { background: rgba(21,98,184,.14);  color: var(--c-deliver); }
+.teal   .panel-count-badge { background: rgba(13,120,105,.14); color: var(--c-collect); }
+.orange .panel-count-badge { background: rgba(188,94,8,.14);   color: var(--c-return); }
+.red    .panel-count-badge { background: rgba(172,36,25,.14);  color: var(--c-hold); }
+.grey   .panel-count-badge { background: rgba(96,92,87,.14);   color: var(--c-void); }
+
+/* ── ORDER LIST TABLE ────────────── */
+.order-list { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; background: var(--surface-0); box-shadow: var(--shadow-xs); }
+
+.order-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 110px 130px auto;
+  gap: 0;
+  border-bottom: 1px solid var(--line);
+  transition: background .15s;
+  position: relative;
+  animation: rowIn .22s ease;
+}
+@keyframes rowIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+.order-row:last-child { border-bottom: none; }
+.order-row:hover { background: var(--surface-1); }
+.order-row.urgent  { border-left: 3px solid var(--c-hold); }
+.order-row.on-hold { border-left: 3px solid var(--c-return); }
+.order-row.paid-confirmed { border-left: 3px solid var(--c-confirm); }
+
+.row-cell {
+  padding: .75rem .85rem;
+  display: flex; flex-direction: column; justify-content: center;
+  min-width: 0;
+}
+.row-cell-border { border-left: 1px solid var(--line); }
+
+/* Order num + date cell */
+.cell-id .order-num  { font-family: var(--mono); font-size: .62rem; color: var(--gold); font-weight: 500; letter-spacing: .03em; }
+.cell-id .order-date { font-family: var(--mono); font-size: .58rem; color: var(--muted); margin-top: .14rem; }
+
+/* Customer cell */
+.cell-customer .customer-name { font-size: .82rem; font-weight: 600; color: var(--navy-3); letter-spacing: -.01em; }
+.cell-customer .order-meta-row { display: flex; align-items: center; gap: .5rem; margin-top: .3rem; flex-wrap: wrap; }
+
+/* Price cell */
+.cell-price { align-items: flex-end; }
+.cell-price .order-price { font-family: var(--mono); font-size: .82rem; font-weight: 600; color: var(--navy-3); }
+.cell-price .pay-source { margin-top: .25rem; }
+
+/* Info cell — badges, phone, note */
+.cell-info { gap: .3rem; }
+
+/* Actions cell */
+.cell-actions { align-items: stretch; justify-content: center; padding: .6rem .75rem; gap: .32rem; min-width: 180px; max-width: 220px; }
+
+/* expand row detail */
+.row-detail { display: none; background: #FAFAF9; border-top: 1px solid var(--line); padding: .7rem 1rem; }
+.row-detail.open { display: block; }
+
+/* ── ORDER CARDS (kept for legacy compatibility, now unused in main view) */
 .order-card {
   background: var(--surface-0);
   border-radius: var(--r-lg); border: 1px solid var(--line);
@@ -222,7 +322,7 @@ header {
   animation: cardIn .28s cubic-bezier(.22,.68,0,1.2);
   position: relative; overflow: hidden;
 }
-.order-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: transparent; transition: background .2s; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.order-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: transparent; transition: background .2s; }
 @keyframes cardIn { from { opacity:0; transform:translateY(8px) scale(.99); } to { opacity:1; transform:translateY(0) scale(1); } }
 .order-card:hover { box-shadow: var(--shadow-card-hover); transform: translateY(-2px); border-color: var(--line-2); }
 .order-card.urgent::before         { background: var(--c-hold); }
@@ -424,26 +524,28 @@ header {
 .fin-input    { font-family: var(--mono); font-size: .78rem; color: var(--navy-3); border: none; outline: none; width: 78px; text-align: right; background: transparent; }
 
 /* ── RESPONSIVE ──────────────────── */
-@media(max-width:1600px) { .pipeline { grid-template-columns: repeat(4,1fr); } }
-@media(max-width:1200px) { .pipeline { grid-template-columns: repeat(3,1fr); } }
 @media(max-width:900px) {
   .tab-bar { display: block; }
-  .pipeline { grid-template-columns: 1fr; padding: .875rem; gap: .75rem; }
-  .col { display: none; }
-  .col.active { display: flex; }
-  .col-header { position: static; }
+  .pipeline { padding: .875rem; }
+  .order-row { grid-template-columns: 1fr; }
+  .row-cell-border { border-left: none; border-top: 1px solid var(--line); }
+  .cell-actions { max-width: none; border-top: 1px solid var(--line); }
+  .stage-nav { display: none; }
   .stats-bar { display: none; }
   .items-popup-overlay { align-items: flex-end; }
   .editor-drawer { max-height: 95vh; }
   header { padding: .6rem 1rem; gap: .5rem; }
 }
 @media(min-width:901px) {
-  .pipeline { grid-template-columns: repeat(7,1fr); }
-  .col { display: flex !important; }
+  .tab-bar { display: none; }
   .items-popup { border-radius: var(--r-lg); margin: auto; max-height: 80vh; }
   .items-popup-overlay { align-items: center; padding: 1rem; }
   .editor-overlay { align-items: center; padding: 1rem; }
   .editor-drawer { border-radius: var(--r-xl); max-height: 85vh; }
+}
+@media(max-width:1100px) {
+  .order-row { grid-template-columns: 90px 1fr 110px auto; }
+  .cell-info { display: none; }
 }
 </style>
 </head>
@@ -524,7 +626,7 @@ header {
     <div class="stat-item"><span class="stat-label" style="font-size:.5rem">EGP</span><span class="stat-value grey" style="font-size:.78rem" id="stat-v7">—</span></div>
   </div>
 
-  <!-- MOBILE TABS -->
+  <!-- MOBILE TABS (shown on mobile only) -->
   <div class="tab-bar" id="tab-bar">
     <button class="tab-btn active" onclick="switchTab('awaiting_deposit')" id="tab-awaiting_deposit">🟡 Awaiting <span class="tab-count" id="tc-awaiting_deposit">0</span></button>
     <button class="tab-btn" onclick="switchTab('confirmed')"        id="tab-confirmed">🟢 Confirmed <span class="tab-count" id="tc-confirmed">0</span></button>
@@ -534,6 +636,31 @@ header {
     <button class="tab-btn" onclick="switchTab('on_hold')"          id="tab-on_hold">🔧 On Hold <span class="tab-count" id="tc-on_hold">0</span></button>
     <button class="tab-btn" onclick="switchTab('cancelled_voided')" id="tab-cancelled_voided">🚫 Cancelled <span class="tab-count" id="tc-cancelled_voided">0</span></button>
   </div>
+
+  <!-- STAGE NAVIGATION (desktop) -->
+  <nav class="stage-nav" id="stage-nav">
+    <button class="stage-tab yellow active" onclick="switchStage('awaiting_deposit')" id="stab-awaiting_deposit">
+      <div class="stage-tab-dot"></div>Awaiting Deposit<span class="stage-tab-count" id="stc-awaiting_deposit">0</span>
+    </button>
+    <button class="stage-tab green" onclick="switchStage('confirmed')" id="stab-confirmed">
+      <div class="stage-tab-dot"></div>Confirmed<span class="stage-tab-count" id="stc-confirmed">0</span>
+    </button>
+    <button class="stage-tab blue" onclick="switchStage('in_delivery')" id="stab-in_delivery">
+      <div class="stage-tab-dot"></div>In Delivery<span class="stage-tab-count" id="stc-in_delivery">0</span>
+    </button>
+    <button class="stage-tab teal" onclick="switchStage('collected')" id="stab-collected">
+      <div class="stage-tab-dot"></div>Collected<span class="stage-tab-count" id="stc-collected">0</span>
+    </button>
+    <button class="stage-tab orange" onclick="switchStage('returning')" id="stab-returning">
+      <div class="stage-tab-dot"></div>Returning<span class="stage-tab-count" id="stc-returning">0</span>
+    </button>
+    <button class="stage-tab red" onclick="switchStage('on_hold')" id="stab-on_hold">
+      <div class="stage-tab-dot"></div>On Hold<span class="stage-tab-count" id="stc-on_hold">0</span>
+    </button>
+    <button class="stage-tab grey" onclick="switchStage('cancelled_voided')" id="stab-cancelled_voided">
+      <div class="stage-tab-dot"></div>Cancelled / Voided<span class="stage-tab-count" id="stc-cancelled_voided">0</span>
+    </button>
+  </nav>
 
   <!-- SORT / FILTER -->
   <div class="control-bar">
@@ -553,7 +680,7 @@ header {
       <option value="expiring">⚠ Expiring soon (≤2 days)</option>
       <option value="high">↑ High value (≥ EGP 1000)</option>
       <option value="today">📅 Placed today</option>
-      <option value="paid_online">💳 Paid Online → Confirmed</option>
+      <option value="paid_online">💳 Paid Online</option>
       <option value="hold">🔧 On Hold</option>
       <option value="returns">🔄 Returning</option>
     </select>
@@ -563,7 +690,7 @@ header {
   </div>
 
   <div class="pipeline" id="pipeline">
-    <div class="loading-state">
+    <div class="loading-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:5rem;color:var(--muted);gap:1.25rem;">
       <div class="spinner"></div>
       <span style="font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.05em">Loading orders...</span>
     </div>
@@ -685,6 +812,7 @@ function enterApp(){
   const ro = new ResizeObserver(updateStickyTops);
   ro.observe(document.querySelector('header'));
 
+  switchStage('awaiting_deposit');
   loadAll();
 }
 
@@ -711,10 +839,14 @@ function updateStickyTops(){
     tabBar.style.top = top+'px';
     if(getComputedStyle(tabBar).display !== 'none') top += tabBar.offsetHeight;
   }
+  // stage nav (desktop — between stats and control bar)
+  const stageNav = document.getElementById('stage-nav');
+  if(stageNav){
+    stageNav.style.top = top+'px';
+    if(getComputedStyle(stageNav).display !== 'none') top += stageNav.offsetHeight;
+  }
   // control bar
   if(ctrlBar) ctrlBar.style.top = top+'px';
-  // col-headers inside pipeline need to know total offset
-  document.querySelectorAll('.col-header').forEach(h => h.style.top = (top)+'px');
 }
 function logout(){
   currentRole=null; pinBuffer=''; updateDots();
@@ -729,10 +861,24 @@ function logout(){
 function switchTab(stage){
   activeTab=stage;
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('tab-'+stage).classList.add('active');
-  document.querySelectorAll('.col').forEach(c=>c.classList.remove('active'));
-  const col=document.getElementById('col-'+stage);
-  if(col) col.classList.add('active');
+  const tb=document.getElementById('tab-'+stage);
+  if(tb) tb.classList.add('active');
+  switchStage(stage);
+}
+function switchStage(stage){
+  activeTab=stage;
+  // mobile tabs sync
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  const tb=document.getElementById('tab-'+stage);
+  if(tb) tb.classList.add('active');
+  // desktop stage nav
+  document.querySelectorAll('.stage-tab').forEach(b=>b.classList.remove('active'));
+  const stab=document.getElementById('stab-'+stage);
+  if(stab) stab.classList.add('active');
+  // show correct panel
+  document.querySelectorAll('.stage-panel').forEach(p=>p.classList.remove('active'));
+  const panel=document.getElementById('panel-'+stage);
+  if(panel) panel.classList.add('active');
 }
 
 // ════════════════════════════════════════
@@ -1101,60 +1247,68 @@ function applyControls(){
 }
 
 // ════════════════════════════════════════
-// RENDER
+// RENDER — LIST VIEW
 // ════════════════════════════════════════
 const STAGE_META={
-  awaiting_deposit:{ label:'Awaiting Deposit', color:'yellow' },
-  confirmed:       { label:'Confirmed',         color:'green'  },
-  in_delivery:     { label:'In Delivery',       color:'blue'   },
-  collected:       { label:'Collected',         color:'teal'   },
-  returning:       { label:'Returning',         color:'orange' },
-  on_hold:         { label:'On Hold — Edit',    color:'red'    },
-  cancelled_voided:{ label:'Cancelled / Voided',color:'grey'   }
+  awaiting_deposit:{ label:'Awaiting Deposit', color:'yellow', icon:'🟡' },
+  confirmed:       { label:'Confirmed',         color:'green',  icon:'🟢' },
+  in_delivery:     { label:'In Delivery',       color:'blue',   icon:'🚚' },
+  collected:       { label:'Collected',         color:'teal',   icon:'✅' },
+  returning:       { label:'Returning',         color:'orange', icon:'🔄' },
+  on_hold:         { label:'On Hold — Edit',    color:'red',    icon:'🔧' },
+  cancelled_voided:{ label:'Cancelled / Voided',color:'grey',   icon:'🚫' }
 };
 
 function renderPipeline(merged){
-  // Build order lookup map so we don't inject full JSON into onclick attributes
   orderMap={};
   merged.forEach(({order,rec})=>{ if(order) orderMap[String(rec.shopify_order_id)]=order; });
   const stages={awaiting_deposit:[],confirmed:[],in_delivery:[],collected:[],returning:[],on_hold:[],cancelled_voided:[]};
   merged.forEach(item=>{ const s=item.rec.stage||'awaiting_deposit'; if(stages[s]) stages[s].push(item); });
   const isOp=currentRole==='operator';
+
   let html='';
   for(const [stage,meta] of Object.entries(STAGE_META)){
     const items=stages[stage];
     const isActive=stage===activeTab?' active':'';
-    const cards=items.length
-      ?items.map(({order,rec})=>renderCard(stage,order,rec,isOp)).join('')
-      :`<div class="empty-col"><div class="empty-icon">○</div>No orders</div>`;
-    html+=`<div class="col${isActive}" id="col-${stage}">
-      <div class="col-header ${meta.color}">
-        <div class="col-title"><div class="col-dot"></div>${meta.label}</div>
-        <div class="col-count">${items.length}</div>
-      </div>${cards}</div>`;
+    const rows=items.length
+      ? `<div class="order-list">${items.map(({order,rec})=>renderRow(stage,order,rec,isOp)).join('')}</div>`
+      : `<div class="empty-col" style="text-align:center;padding:3rem 1rem;color:var(--subtle);font-size:.7rem;font-family:var(--mono)"><div style="font-size:2rem;opacity:.18;margin-bottom:.6rem">○</div>No orders in this stage</div>`;
+    html+=`<div class="stage-panel${isActive}" id="panel-${stage}">
+      <div class="panel-header ${meta.color}">
+        <div class="panel-title"><div class="panel-dot"></div>${meta.label}</div>
+        <div class="panel-count-badge">${items.length}</div>
+      </div>
+      ${rows}
+    </div>`;
   }
   document.getElementById('pipeline').innerHTML=html;
+  setTimeout(updateStickyTops,50);
 }
 
-function renderCard(stage,order,rec,isOp){
-  const sid  =rec.shopify_order_id;
-  const num  =rec.order_number||(order?`#${order.name}`:'—');
-  const name =rec.customer_name||'Unknown';
-  const price=parseFloat(rec.total_price||(order?order.total_price:0)||0);
-  const created=new Date(rec.created_at_shopify||(order?order.created_at:Date.now()));
-  const daysOld=Math.floor((Date.now()-created)/86400000);
+// WhatsApp SVG icon
+const WA_SVG=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>`;
+
+function renderRow(stage,order,rec,isOp){
+  const sid   = rec.shopify_order_id;
+  const num   = rec.order_number||(order?`#${order.name}`:'—');
+  const name  = rec.customer_name||'Unknown';
+  const price = parseFloat(rec.total_price||(order?order.total_price:0)||0);
+  const created= new Date(rec.created_at_shopify||(order?order.created_at:Date.now()));
+  const daysOld= Math.floor((Date.now()-created)/86400000);
   const daysLeft=7-daysOld;
   const isPaidOnline=rec.payment_source==='paid_online'||(order&&order.financial_status==='paid');
   const itemCount = order ? (order.line_items||[]).length : 0;
   const itemsPreview = order ? (order.line_items||[]).slice(0,1).map(i=>`${i.name} ×${i.quantity}`).join('') + (itemCount>1?` +${itemCount-1} more`:'') : '';
   const itemsDataAttr = order ? encodeURIComponent(JSON.stringify((order.line_items||[]).map(i=>({name:i.name,qty:i.quantity,price:i.price})))) : '';
-  const note =rec.notes||(order?order.note:'')||'';
-  const phone=order?(order.billing_address?.phone||order.shipping_address?.phone||''):'';
+  const note  = rec.notes||(order?order.note:'')||'';
+  const phone = order?(order.billing_address?.phone||order.shipping_address?.phone||''):'';
   const attempts=rec.delivery_attempts||0;
   const isUrgent=stage==='awaiting_deposit'&&daysLeft<=1&&!isPaidOnline;
   const isHold  =rec.edit_flagged;
+  const esc=s=>String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const shopifyLink=`https://muhrastore-2.myshopify.com/admin/orders/${sid}`;
 
-  // Countdown only for COD awaiting deposit
+  // Countdown badge
   let countdown='';
   if(stage==='awaiting_deposit'&&!isPaidOnline){
     const cls=daysLeft<=0?'danger':daysLeft<=2?'warn':'safe';
@@ -1165,59 +1319,57 @@ function renderCard(stage,order,rec,isOp){
   // Payment source badge
   let payBadge='';
   if(isPaidOnline) payBadge=`<div class="pay-source paid">💳 PAID ONLINE</div>`;
-  else if(stage==='awaiting_deposit') payBadge=`<div class="pay-source cod">💵 COD — Awaiting Deposit</div>`;
+  else if(stage==='awaiting_deposit') payBadge=`<div class="pay-source cod">💵 COD</div>`;
 
   // Status badges
   let badges='';
-  if(stage==='confirmed' && hasArabicConfirmation(note)) badges+=`<div class="badge paid-online" style="background:#f0fdf4;color:#15803d;border-color:#86efac">🔤 Auto-confirmed — Asmaa note</div>`;
-  if(isHold&&(stage==='confirmed'||stage==='on_hold')) badges+=`<div class="badge hold">🔧 HOLD — Edit Pending${rec.edit_note?' · '+rec.edit_note:''}</div>`;
-  if(isPaidOnline&&stage==='confirmed') badges+=`<div class="badge paid-online">✅ Payment Verified — Ready to Ship</div>`;
+  if(stage==='confirmed'&&hasArabicConfirmation(note)) badges+=`<div class="badge paid-online" style="background:#f0fdf4;color:#15803d;border-color:#86efac">🔤 Auto-confirmed</div>`;
+  if(isHold&&(stage==='confirmed'||stage==='on_hold')) badges+=`<div class="badge hold">🔧 HOLD${rec.edit_note?' · '+rec.edit_note:''}</div>`;
+  if(isPaidOnline&&stage==='confirmed') badges+=`<div class="badge paid-online">✅ Payment Verified</div>`;
   if(stage==='returning'&&rec.return_reason) badges+=`<div class="badge return">↩ ${rec.return_reason}</div>`;
   if(attempts>0&&stage==='in_delivery') badges+=`<div class="badge attempts">Attempt ${attempts}/3</div>`;
-  if(stage==='cancelled_voided') badges+=`<div class="badge return" style="background:#f5f5f4;color:#57534e;border-color:#d6d3d1">${order&&order.financial_status==='voided'?'🚫 Payment Voided':'✕ Cancelled'} — ${order&&order.cancel_reason?order.cancel_reason:'Shopify'}</div>`;
-  if(stage==='in_delivery' && order && hasShippedByAccurateTag(order)) badges+=`<div class="badge attempts" style="background:#f0f9ff;color:#075985;border-color:#7dd3fc">📦 Accurate Courier</div>`;
+  if(stage==='cancelled_voided') badges+=`<div class="badge return" style="background:#f5f5f4;color:#57534e;border-color:#d6d3d1">${order&&order.financial_status==='voided'?'🚫 Voided':'✕ Cancelled'}</div>`;
+  if(stage==='in_delivery'&&order&&hasShippedByAccurateTag(order)) badges+=`<div class="badge attempts" style="background:#f0f9ff;color:#075985;border-color:#7dd3fc">📦 Accurate</div>`;
+  if(stage==='collected'&&isPaidOnline) badges+=`<div class="badge paid-online">💳 POS / Online</div>`;
 
-  const esc=s=>String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-  const shopifyLink=`https://muhrastore-2.myshopify.com/admin/orders/${sid}`;
-
+  // Actions
   let actions='';
   if(isOp){
     if(stage==='awaiting_deposit'){
       if(isPaidOnline){
-        // Paid online: skip deposit step, go straight to ship
         actions=`
-          <button class="btn-action btn-ship" onclick="markShipped('${esc(sid)}','${esc(num)}','${esc(name)}')">🚚 Hand to Wijha Courier</button>
+          <button class="btn-action btn-ship" onclick="markShipped('${esc(sid)}','${esc(num)}','${esc(name)}')">🚚 Hand to Courier</button>
           <div class="btn-row">
-            <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order</button>
-            <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — customer request')">✕ Cancel</button>
+            <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit</button>
+            <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — customer request')">✕</button>
           </div>
           <div class="note-area" id="note-${sid}">
-            <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note to Shopify order..."></textarea>
-            <button class="note-save" onclick="saveNote('${esc(sid)}')">Save Note</button>
+            <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
+            <button class="note-save" onclick="saveNote('${esc(sid)}')">Save</button>
           </div>
-          <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Add Note</button>`;
+          <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Note</button>`;
       } else {
         actions=`
           <button class="btn-action btn-confirm" onclick="confirmDeposit('${esc(sid)}','${esc(num)}','${esc(name)}')">✓ Deposit Received</button>
           <div class="btn-row">
-            <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order</button>
-            <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — no deposit')">✕ Cancel</button>
+            <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit</button>
+            <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — no deposit')">✕</button>
           </div>
           <div class="note-area" id="note-${sid}">
-            <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note to Shopify order..."></textarea>
-            <button class="note-save" onclick="saveNote('${esc(sid)}')">Save Note</button>
+            <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
+            <button class="note-save" onclick="saveNote('${esc(sid)}')">Save</button>
           </div>
-          <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Add Note</button>`;
+          <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Note</button>`;
       }
     } else if(stage==='confirmed'){
       const shipDisabled=isHold?'disabled title="Resolve edit hold first"':'';
       actions=`
-        <button class="btn-action btn-ship" ${shipDisabled} onclick="markShipped('${esc(sid)}','${esc(num)}','${esc(name)}')">🚚 Hand to Wijha Courier</button>
+        <button class="btn-action btn-ship" ${shipDisabled} onclick="markShipped('${esc(sid)}','${esc(num)}','${esc(name)}')">🚚 Hand to Courier</button>
         <div class="btn-row">
-          <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order</button>
+          <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit</button>
           ${isHold
             ?`<button class="btn-action btn-orange" onclick="clearHold('${esc(sid)}','${esc(num)}')">✓ Clear Hold</button>`
-            :`<button class="btn-action btn-orange" onclick="flagEdit('${esc(sid)}','${esc(num)}','${esc(name)}')">🔧 Flag for Edit</button>`}
+            :`<button class="btn-action btn-orange" onclick="flagEdit('${esc(sid)}','${esc(num)}','${esc(name)}')">🔧 Flag Edit</button>`}
         </div>
         <div class="btn-row">
           <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled by customer after deposit')">✕ Cancel</button>
@@ -1225,70 +1377,81 @@ function renderCard(stage,order,rec,isOp){
         </div>
         <div class="note-area" id="note-${sid}">
           <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
-          <button class="note-save" onclick="saveNote('${esc(sid)}')">Save Note</button>
+          <button class="note-save" onclick="saveNote('${esc(sid)}')">Save</button>
         </div>`;
     } else if(stage==='in_delivery'){
       const canCollect=attempts<3;
       actions=`
         ${canCollect?`<button class="btn-action btn-collect" onclick="markCollected('${esc(sid)}','${esc(num)}','${esc(name)}',${price})">💰 Mark Collected</button>`:''}
         <div class="btn-row">
-          <button class="btn-action btn-orange" onclick="failedDelivery('${esc(sid)}','${esc(num)}','${esc(name)}',${attempts})">🔄 Failed Delivery</button>
+          <button class="btn-action btn-orange" onclick="failedDelivery('${esc(sid)}','${esc(num)}','${esc(name)}',${attempts})">🔄 Failed</button>
           <button class="btn-action btn-cancel" onclick="rejectOrder('${esc(sid)}','${esc(num)}','${esc(name)}')">✗ Rejected</button>
         </div>
         <div class="btn-row">
-          <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order</button>
+          <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit</button>
           <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Note</button>
         </div>
         <div class="note-area" id="note-${sid}">
           <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
-          <button class="note-save" onclick="saveNote('${esc(sid)}')">Save Note</button>
+          <button class="note-save" onclick="saveNote('${esc(sid)}')">Save</button>
         </div>`;
     } else if(stage==='returning'){
       actions=`
-        <button class="btn-action btn-confirm" onclick="confirmReturned('${esc(sid)}','${esc(num)}','${esc(name)}')">📦 Received at Warehouse → Cancel</button>
+        <button class="btn-action btn-confirm" onclick="confirmReturned('${esc(sid)}','${esc(num)}','${esc(name)}')">📦 Received → Cancel</button>
         <div class="note-area" id="note-${sid}">
           <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
-          <button class="note-save" onclick="saveNote('${esc(sid)}')">Save Note</button>
+          <button class="note-save" onclick="saveNote('${esc(sid)}')">Save</button>
         </div>
         <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Note</button>`;
     } else if(stage==='on_hold'){
       actions=`
-        <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order in Dashboard</button>
-        <a class="btn-action btn-shopify" href="${shopifyLink}" target="_blank">🔗 Open in Shopify Admin</a>
-        <button class="btn-action btn-ship" onclick="resolveHoldAndShip('${esc(sid)}','${esc(num)}','${esc(name)}')">✓ Resolved — Hand to Wijha</button>
-        <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — edit requested')">✕ Cancel Order</button>`;
+        <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order</button>
+        <a class="btn-action btn-shopify" href="${shopifyLink}" target="_blank">🔗 Shopify Admin</a>
+        <button class="btn-action btn-ship" onclick="resolveHoldAndShip('${esc(sid)}','${esc(num)}','${esc(name)}')">✓ Resolved → Ship</button>
+        <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — edit requested')">✕ Cancel</button>`;
     } else if(stage==='collected'){
-      actions=`<div style="font-size:.68rem;color:var(--s-teal);font-family:'DM Mono',monospace;text-align:center;padding:.2rem">✓ Archived as Paid on Shopify</div>`;
+      const collectedLabel=isPaidOnline?'💳 Paid Online — Auto-collected':'✓ COD Collected';
+      actions=`<div style="font-size:.68rem;color:var(--c-collect);font-family:'JetBrains Mono',monospace;text-align:center;padding:.35rem .5rem;background:var(--c-collect-bg);border-radius:6px;border:1px solid var(--c-collect-line)">${collectedLabel}</div>`;
     } else if(stage==='cancelled_voided'){
       const isVoidedCard = order && order.financial_status==='voided';
       const voidLabel = isVoidedCard ? '🚫 Voided on Shopify' : '✕ Cancelled on Shopify';
-      actions=`<div style="font-size:.68rem;color:#78716c;font-family:'DM Mono',monospace;text-align:center;padding:.2rem;background:#f5f5f4;border-radius:6px">${voidLabel}</div>`;
+      actions=`<div style="font-size:.68rem;color:#78716c;font-family:'JetBrains Mono',monospace;text-align:center;padding:.35rem .5rem;background:#f5f5f4;border-radius:6px">${voidLabel}</div>`;
     }
   }
 
-  const cardClass=`order-card${isUrgent?' urgent':''}${isHold&&(stage==='confirmed'||stage==='on_hold')?' on-hold':''}${isPaidOnline&&stage==='confirmed'?' paid-confirmed':''}`;
-  return `<div class="${cardClass}" id="card-${sid}">
-    <div class="card-top">
-      <div><div class="order-num">${num}</div><div class="customer-name">${name}</div></div>
+  const rowClass=`order-row${isUrgent?' urgent':''}${isHold&&(stage==='confirmed'||stage==='on_hold')?' on-hold':''}${isPaidOnline&&stage==='confirmed'?' paid-confirmed':''}`;
+  const phoneNorm=normalizeEgPhone(phone);
+
+  return `<div class="${rowClass}" id="card-${sid}">
+    <div class="row-cell cell-id">
+      <div class="order-num">${num}</div>
+      <div class="order-date">${fmtDate(created)}</div>
       ${countdown}
     </div>
-    <div class="order-meta">
-      <span class="order-price">EGP ${price.toLocaleString('en-EG',{minimumFractionDigits:2})}</span>
-      <span class="order-date">${fmtDate(created)}</span>
+    <div class="row-cell cell-customer row-cell-border">
+      <div class="customer-name">${name}</div>
+      <div class="order-meta-row">
+        ${payBadge}
+        ${itemsPreview?`<button class="items-btn" onclick="openItemsPopup('${esc(num)}','${esc(name)}',${price},'${itemsDataAttr}')">📦 ${itemsPreview}</button>`:''}
+      </div>
+      ${badges?`<div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.3rem">${badges}</div>`:''}
+      ${note?`<div class="order-note" style="margin-top:.35rem">${note}</div>`:''}
     </div>
-    ${payBadge}
-    ${itemsPreview?`<button class="items-btn" onclick="openItemsPopup('${esc(num)}','${esc(name)}',${price},'${itemsDataAttr}')">📦 ${itemsPreview}</button>`:''}
-    ${badges}
-    ${phone?`<div class="phone-row">
-      <a class="phone-call" href="tel:+${normalizeEgPhone(phone).replace(/^00/,'')}">📞 ${normalizeEgPhone(phone)}</a>
-      <a class="phone-wa" href="https://wa.me/${normalizeEgPhone(phone).replace(/^00/,'')}" target="_blank" rel="noopener">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-      </a>
-    </div>`:''}
-    ${note?`<div class="order-note">${note}</div>`:''}
-    ${actions?`<div class="card-actions">${actions}</div>`:''}
+    <div class="row-cell cell-price row-cell-border">
+      <div class="order-price">EGP ${price.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
+    </div>
+    <div class="row-cell cell-info row-cell-border">
+      ${phone?`<div class="phone-row" style="margin:0">
+        <a class="phone-call" href="tel:+${phoneNorm.replace(/^00/,'')}">📞 ${phoneNorm}</a>
+        <a class="phone-wa" href="https://wa.me/${phoneNorm.replace(/^00/,'')}" target="_blank" rel="noopener">${WA_SVG}</a>
+      </div>`:'<span style="font-size:.62rem;color:var(--subtle);font-family:var(--mono)">—</span>'}
+    </div>
+    <div class="row-cell cell-actions row-cell-border">
+      ${actions?`<div class="card-actions" style="width:100%">${actions}</div>`:''}
+    </div>
   </div>`;
 }
+
 
 function updateStats(merged){
   const c={awaiting_deposit:0,confirmed:0,in_delivery:0,collected:0,returning:0,on_hold:0,cancelled_voided:0};
@@ -1305,7 +1468,10 @@ function updateStats(merged){
     }
   });
   const ALL_STAGES=['awaiting_deposit','confirmed','in_delivery','collected','returning','on_hold','cancelled_voided'];
-  ALL_STAGES.forEach(s=>{ const tc=document.getElementById('tc-'+s); if(tc) tc.textContent=c[s]||0; });
+  ALL_STAGES.forEach(s=>{
+    const tc=document.getElementById('tc-'+s); if(tc) tc.textContent=c[s]||0;
+    const stc=document.getElementById('stc-'+s); if(stc) stc.textContent=c[s]||0;
+  });
   document.getElementById('stat-total').textContent=merged.length;
   document.getElementById('stat-s1').textContent=c.awaiting_deposit;
   document.getElementById('stat-s2').textContent=c.confirmed;
@@ -1324,7 +1490,7 @@ function updateStats(merged){
 }
 
 function renderError(){
-  document.getElementById('pipeline').innerHTML=`<div class="loading-state" style="grid-column:1/-1"><div style="font-size:2rem">⚠</div><span style="font-family:'DM Mono',monospace;font-size:.72rem;color:var(--danger)">Failed to load. Check console.</span></div>`;
+  document.getElementById('pipeline').innerHTML=`<div class="loading-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:5rem;color:var(--muted);gap:1.25rem"><div style="font-size:2rem">⚠</div><span style="font-family:'JetBrains Mono',monospace;font-size:.72rem;color:var(--danger)">Failed to load. Check console.</span></div>`;
 }
 
 // ════════════════════════════════════════
