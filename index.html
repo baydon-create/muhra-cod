@@ -1047,21 +1047,23 @@ async function shopifyFetch(path, method='GET', bodyObj=null){
 
 // ── Paginated Shopify order fetcher ──────────────────────────────────────────
 // Follows Shopify's cursor pagination (Link header → page_info) until exhausted.
-async function fetchAllPages(firstPath, progressLabel){
-  const orders = [];
+async function fetchAllPages(firstPath, progressLabel, key='orders'){
+  const items = [];
   const prog = document.getElementById('fetch-progress');
+  const [resource, query=''] = firstPath.split('?');
+  const fields = new URLSearchParams(query).get('fields');
   let path = firstPath;
   while(path){
     const res = await apiRaw({action:'shopify',path,method:'GET',body:null},'Shopify');
     const data = JSON.parse(await res.text() || '{}');
-    orders.push(...(data.orders || []));
+    items.push(...(data[key] || []));
     const next = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get('X-Shopify-Link') || '');
     const pageInfo = next && new URL(next[1]).searchParams.get('page_info');
     // With page_info, Shopify only accepts limit (and fields) alongside it.
-    path = pageInfo ? `orders.json?limit=250&page_info=${encodeURIComponent(pageInfo)}` : null;
-    if(prog && path) prog.textContent = `${progressLabel} — ${orders.length} loaded…`;
+    path = pageInfo ? `${resource}?limit=250&page_info=${encodeURIComponent(pageInfo)}${fields?`&fields=${encodeURIComponent(fields)}`:''}` : null;
+    if(prog && path && key==='orders') prog.textContent = `${progressLabel} — ${items.length} loaded…`;
   }
-  return orders;
+  return items;
 }
 
 async function getOrders(){
@@ -1086,23 +1088,27 @@ async function getOrders(){
 // Cancels (unfulfilled) or closes (fulfilled + returned) an order on Shopify,
 // restocking every item and voiding the balance without moving any money.
 async function cancelShopifyOrder(orderId) {
-  const order = orderMap[orderId];
-  if (!order || !order.line_items) {
-    throw new Error("Order data not found. Please refresh the page and try again.");
-  }
+  // Always work from fresh data, so a retry sees refunds made by an earlier attempt.
+  const order = await getOrderData(orderId, true);
 
   // Items already shipped can only be restocked as a return (Shopify also
   // refuses to cancel an order that has fulfillments).
-  const isShipped = li => li.fulfillment_status === 'fulfilled' || (li.fulfillable_quantity === 0 && li.quantity > 0);
-  const hasFulfillments = (order.fulfillments || []).length > 0 || order.line_items.some(isShipped);
+  const isShipped = li => li.fulfillment_status === 'fulfilled' || li.fulfillment_status === 'partial';
+  const hasFulfillments = (order.fulfillments || []).some(f => f.status !== 'cancelled')
+    || ['fulfilled', 'partial'].includes(order.fulfillment_status);
 
   // Quantities already refunded (e.g. an earlier attempt that failed half-way) are skipped.
   const refunded = {};
   (order.refunds || []).forEach(r => (r.refund_line_items || []).forEach(rli => {
     refunded[rli.line_item_id] = (refunded[rli.line_item_id] || 0) + rli.quantity;
   }));
-  const refundLineItems = order.line_items
-    .map(li => ({ line_item_id: li.id, quantity: li.quantity - (refunded[li.id] || 0), restock_type: isShipped(li) ? 'return' : 'cancel' }))
+  const refundLineItems = (order.line_items || [])
+    .map(li => ({
+      line_item_id: li.id,
+      // current_quantity already excludes refunded/removed units when Shopify provides it
+      quantity: li.current_quantity ?? (li.quantity - (refunded[li.id] || 0)),
+      restock_type: isShipped(li) ? 'return' : 'cancel'
+    }))
     .filter(i => i.quantity > 0);
 
   if (refundLineItems.length) {
@@ -1160,9 +1166,7 @@ async function markOrderPaid(orderId) {
 async function loadAllProductsToCache(){
   if(variantsCacheLoaded) return;
   try{
-    // Single fetch — 250 products covers most stores; REST page param deprecated, use limit only
-    const data=await shopifyFetch('products.json?limit=250&status=active&fields=id,title,variants');
-    const products=data.products||[];
+    const products=await fetchAllPages('products.json?limit=250&status=active&fields=id,title,variants','Products','products');
     allVariantsCache=[];
     products.forEach(p=>{
       (p.variants||[]).forEach(v=>{
@@ -1215,6 +1219,22 @@ function hasArabicConfirmation(note){
   if(!note) return false;
   return ARABIC_CONFIRMED_PHRASES.some(p => note.includes(p));
 }
+// Shopify keeps total_price / quantity at their original values after an order is
+// edited; current_total_price / current_quantity reflect edits and removals.
+function orderTotal(order){ return parseFloat((order.current_total_price ?? order.total_price) || 0); }
+function liQty(li){ return li.current_quantity ?? li.quantity; }
+function liveItems(order){ return ((order && order.line_items) || []).filter(li => liQty(li) > 0); }
+
+// The order from the last load, or fetched fresh (e.g. a record outside the date range).
+async function getOrderData(sid, fresh=false){
+  if(!fresh && orderMap[sid]) return orderMap[sid];
+  const data = await shopifyFetch(`orders.json?ids=${encodeURIComponent(sid)}&status=any`);
+  const order = (data.orders || [])[0];
+  if(!order) throw new Error('Order not found on Shopify');
+  orderMap[sid] = order;
+  return order;
+}
+
 function hasShippedByAccurateTag(order){
   if(!order) return false;
   const tags = (order.tags||'').split(',').map(t=>t.trim().toLowerCase());
@@ -1228,10 +1248,6 @@ async function updateRecord(sid,data){
   // PATCH matching nothing still "succeeds"; surface it instead of pretending it saved.
   if(Array.isArray(rows)&&rows.length===0) throw new Error('Order is not in the pipeline yet — refresh and try again');
   return rows;
-}
-async function insertRecord(data){
-  if(currentRole!=='operator') return [data];
-  return apiCall({action:'db',op:'insert',data},'Database');
 }
 
 // ════════════════════════════════════════
@@ -1282,7 +1298,7 @@ async function doLoadAll(){
           shopify_order_id:sid,
           order_number:order.name||`#${order.order_number}`,
           customer_name:(()=>{ const b=order.billing_address,c=order.customer; if(b)return `${b.first_name||''} ${b.last_name||''}`.trim(); if(c)return `${c.first_name||''} ${c.last_name||''}`.trim(); return 'Unknown'; })(),
-          total_price:parseFloat(order.total_price||0),
+          total_price:orderTotal(order),
           created_at_shopify:order.created_at,
           stage:initialStage,
           delivery_attempts:0,
@@ -1318,7 +1334,7 @@ async function doLoadAll(){
             rec={...rec,stage:'in_delivery'};
           }
           // Keep the stored total in step with Shopify (e.g. order edited in Shopify Admin)
-          const shopTotal=parseFloat(order.total_price||0);
+          const shopTotal=orderTotal(order);
           if(rec.stage!=='cancelled_voided' && Math.abs(shopTotal-Number(rec.total_price||0))>0.009){
             queueUpdate(sid,{total_price:shopTotal});
             rec={...rec,total_price:shopTotal};
@@ -1391,7 +1407,7 @@ function applyControls(){
   let filtered=allMerged.filter(({order,rec})=>{
     if(search){ const n=(rec.order_number||'').toLowerCase(),nm=(rec.customer_name||'').toLowerCase(); if(!n.includes(search)&&!nm.includes(search)) return false; }
     if(filter==='expiring'){ const created=new Date(rec.created_at_shopify||(order?order.created_at:Date.now())); const dl=7-Math.floor((Date.now()-created)/86400000); if(!(rec.stage==='awaiting_deposit'&&dl<=2)) return false; }
-    if(filter==='high'){ const p=parseFloat(rec.total_price||(order?order.total_price:0)||0); if(p<1000) return false; }
+    if(filter==='high'){ const p=parseFloat(rec.total_price||(order?orderTotal(order):0)||0); if(p<1000) return false; }
     if(filter==='today'){ const created=new Date(rec.created_at_shopify||(order?order.created_at:Date.now())); if(created.toDateString()!==new Date().toDateString()) return false; }
     if(filter==='paid_online'){ if(rec.payment_source!=='paid_online') return false; }
     if(filter==='hold')    { if(rec.stage!=='on_hold')   return false; }
@@ -1400,8 +1416,8 @@ function applyControls(){
   });
 
   filtered.sort((a,b)=>{
-    const pA=parseFloat(a.rec.total_price||(a.order?a.order.total_price:0)||0);
-    const pB=parseFloat(b.rec.total_price||(b.order?b.order.total_price:0)||0);
+    const pA=parseFloat(a.rec.total_price||(a.order?orderTotal(a.order):0)||0);
+    const pB=parseFloat(b.rec.total_price||(b.order?orderTotal(b.order):0)||0);
     const dA=new Date(a.rec.created_at_shopify||(a.order?a.order.created_at:0));
     const dB=new Date(b.rec.created_at_shopify||(b.order?b.order.created_at:0));
     const nA=(a.rec.customer_name||'').toLowerCase();
@@ -1470,14 +1486,15 @@ function renderRow(stage,order,rec,isOp){
   const sid   = rec.shopify_order_id;
   const num   = rec.order_number||(order?order.name:'—');
   const name  = rec.customer_name||'Unknown';
-  const price = parseFloat(rec.total_price||(order?order.total_price:0)||0);
+  const price = parseFloat(rec.total_price||(order?orderTotal(order):0)||0);
   const created= new Date(rec.created_at_shopify||(order?order.created_at:Date.now()));
   const daysOld= Math.floor((Date.now()-created)/86400000);
   const daysLeft=7-daysOld;
   const isPaidOnline=rec.payment_source==='paid_online';
-  const itemCount = order ? (order.line_items||[]).length : 0;
-  const itemsPreview = order ? h((order.line_items||[]).slice(0,1).map(i=>`${i.name} ×${i.quantity}`).join('') + (itemCount>1?` +${itemCount-1} more`:'')) : '';
-  const itemsDataAttr = order ? encodeURIComponent(JSON.stringify((order.line_items||[]).map(i=>({name:i.name,qty:i.quantity,price:i.price})))) : '';
+  const items = liveItems(order);
+  const itemCount = items.length;
+  const itemsPreview = itemCount ? h(`${items[0].name} ×${liQty(items[0])}` + (itemCount>1?` +${itemCount-1} more`:'')) : '';
+  const itemsDataAttr = itemCount ? encodeURIComponent(JSON.stringify(items.map(i=>({name:i.name,qty:liQty(i),price:i.price})))) : '';
   const note  = rec.notes||(order?order.note:'')||'';
   const phone = order?(order.billing_address?.phone||order.shipping_address?.phone||''):'';
   const attempts=rec.delivery_attempts||0;
@@ -1648,7 +1665,7 @@ function updateStats(merged){
   merged.forEach(({order,rec})=>{
     const s=rec.stage||'awaiting_deposit';
     if(c[s]!==undefined) c[s]++;
-    const price=parseFloat(rec.total_price||(order?order.total_price:0)||0);
+    const price=parseFloat(rec.total_price||(order?orderTotal(order):0)||0);
     if(v[s]!==undefined) v[s]+=price;
     if(s==='awaiting_deposit'&&!(rec.payment_source==='paid_online')){
       const d=Math.floor((Date.now()-new Date(rec.created_at_shopify||(order?order.created_at:Date.now())))/86400000);
@@ -1708,9 +1725,13 @@ function closeItemsPopup(e){
 // ════════════════════════════════════════
 // ORDER EDITOR
 // ════════════════════════════════════════
-function openEditor(sid){
+async function openEditor(sid){
   const merged=allMerged.find(m=>String(m.rec.shopify_order_id)===String(sid));
-  const order=merged?merged.order:orderMap[sid]||null;
+  let order=merged?merged.order:orderMap[sid]||null;
+  if(!order){
+    try{ order=await getOrderData(sid); }
+    catch(e){ showToast('Could not load this order from Shopify: '+e.message,'error'); return; }
+  }
   const rec=merged?merged.rec:{};
   const num=rec.order_number||sid;
   const name=rec.customer_name||'Unknown';
@@ -1719,13 +1740,13 @@ function openEditor(sid){
   editorOrderObj=order;
 
   // Build initial items list from Shopify order
-  editorItems=(order?order.line_items||[]:[]).map(li=>({
+  editorItems=liveItems(order).map(li=>({
     line_item_id: li.id,
     variant_id:   li.variant_id,
     product_id:   li.product_id,
     title:        li.name||li.title,
     variant_title:li.variant_title||'',
-    quantity:     li.quantity,
+    quantity:     liQty(li),
     price:        parseFloat(li.price||0),
     removed:      false,
     isNew:        false
@@ -1734,7 +1755,7 @@ function openEditor(sid){
   editorNote=editorOrigNote=(order?order.note:'')||'';
   _pendingSaveData=null;
   resetEditorFooter();
-  editorDiscount=parseFloat(order&&order.total_discounts||0);
+  editorDiscount=origDiscount(order);
   editorShipping=parseFloat(order&&order.shipping_lines&&order.shipping_lines[0]&&order.shipping_lines[0].price||0);
 
   // Pre-load product cache in background so search is instant
@@ -1774,15 +1795,16 @@ function closeEditor(){
   if(sr) sr.classList.remove('open');
 }
 
+function origDiscount(order){ return parseFloat(order&&(order.current_total_discounts ?? order.total_discounts)||0); }
 function editorTotals(){
   const subtotal=editorItems.reduce((s,i)=>i.removed?s:s+(i.price*i.quantity),0);
   const disc=editorDiscount||0;
   const ship=editorShipping||0;
   const grandTotal=Math.max(0,subtotal-disc)+ship;
-  const origDisc=parseFloat(editorOrderObj&&editorOrderObj.total_discounts||0);
+  const origDisc=origDiscount(editorOrderObj);
   const origShip=parseFloat(editorOrderObj&&editorOrderObj.shipping_lines&&editorOrderObj.shipping_lines[0]&&editorOrderObj.shipping_lines[0].price||0);
   const hasChanges=disc!==origDisc||ship!==origShip||editorItems.some(i=>i.removed||i.isNew||
-    (editorOrderObj&&(editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity)));
+    (editorOrderObj&&(editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&liQty(li)!==i.quantity)));
   return {subtotal,disc,ship,grandTotal,hasChanges};
 }
 // Updates only the total figures, so typing in Discount / Shipping keeps focus.
@@ -1978,8 +2000,6 @@ function addProductToOrder(variantIndex){
   renderEditorBody();
 }
 
-// ── GraphQL via Proxy ──────────────────────────────────────────────────────
-
 // ── Shopify Admin base URL ──────────────────────────────────────────────────
 const SHOPIFY_ADMIN = 'https://muhrastore-2.myshopify.com/admin/orders';
 
@@ -2001,8 +2021,8 @@ function reviewOrderEdits(){
   const newItems    =editorItems.filter(i=>i.isNew&&!i.removed);
   const removedItems=editorItems.filter(i=>!i.isNew&&i.removed);
   const qtyChanges  =editorItems.filter(i=>!i.isNew&&!i.removed&&editorOrderObj&&
-    (editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity));
-  const origDisc=parseFloat(editorOrderObj&&editorOrderObj.total_discounts||0);
+    (editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&liQty(li)!==i.quantity));
+  const origDisc=origDiscount(editorOrderObj);
   const origShip=parseFloat(editorOrderObj&&editorOrderObj.shipping_lines&&
     editorOrderObj.shipping_lines[0]&&editorOrderObj.shipping_lines[0].price||0);
 
@@ -2125,7 +2145,7 @@ function confirmDeposit(sid,num,name){
         await updateRecord(sid,{stage:'confirmed',deposit_confirmed_at:new Date().toISOString(),deposit_confirmed_by:'Asmaa'});
         await addOrderNote(sid,`✅ Deposit confirmed by Asmaa on ${fmtDate(new Date())}. Ready to ship.`);
         showToast(`${num} — Deposit confirmed ✓`,'success'); loadAll();
-      }catch(e){showToast('Error: '+e.message,'error');}
+      }catch(e){showToast('Error: '+e.message,'error'); loadAll();}
     });
 }
 
@@ -2139,7 +2159,7 @@ function markShipped(sid,num,name){
         await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString(),edit_flagged:false});
         await addOrderNote(sid,`🚚 Handed to Wijha on ${fmtDate(new Date())}.`);
         showToast(`${num} — In Delivery ✓`,'success'); loadAll();
-      }catch(e){showToast('Error: '+e.message,'error');}
+      }catch(e){showToast('Error: '+e.message,'error'); loadAll();}
     });
 }
 
@@ -2152,7 +2172,7 @@ function flagEdit(sid,num,name){
         await updateRecord(sid,{edit_flagged:true,edit_note:note||'Edit required',stage:'on_hold'});
         await addOrderNote(sid,`🔧 Order flagged for edit on ${fmtDate(new Date())}${note?' — '+note:''}. Held from shipping.`);
         showToast(`${num} — Flagged for edit`,'warn'); loadAll();
-      }catch(e){showToast('Error: '+e.message,'error');}
+      }catch(e){showToast('Error: '+e.message,'error'); loadAll();}
     });
 }
 
@@ -2163,7 +2183,7 @@ function clearHold(sid,num){
         await updateRecord(sid,{edit_flagged:false,edit_note:'',stage:'confirmed'});
         await addOrderNote(sid,`✅ Edit hold cleared on ${fmtDate(new Date())}. Ready to ship.`);
         showToast(`${num} — Hold cleared ✓`,'success'); loadAll();
-      }catch(e){showToast('Error: '+e.message,'error');}
+      }catch(e){showToast('Error: '+e.message,'error'); loadAll();}
     });
 }
 
@@ -2174,7 +2194,7 @@ function resolveHoldAndShip(sid,num,name){
         await updateRecord(sid,{stage:'in_delivery',edit_flagged:false,edit_note:'',shipped_at:new Date().toISOString()});
         await addOrderNote(sid,`✅ Edit resolved. 🚚 Handed to Wijha on ${fmtDate(new Date())}.`);
         showToast(`${num} — Resolved & In Delivery ✓`,'success'); loadAll();
-      }catch(e){showToast('Error: '+e.message,'error');}
+      }catch(e){showToast('Error: '+e.message,'error'); loadAll();}
     });
 }
 
@@ -2193,7 +2213,7 @@ function markCollected(sid,num,name,price){
         await addOrderNote(sid,`💰 COD collected on ${fmtDate(new Date())}.${paidOk?' Marked paid and archived.':''}`);
         if(paidOk) showToast(`${num} — Collected, marked paid & archived ✓`,'success');
         loadAll();
-      }catch(e){showToast('Error: '+e.message,'error');}
+      }catch(e){showToast('Error: '+e.message,'error'); loadAll();}
     });
 }
 
@@ -2208,7 +2228,7 @@ function failedDelivery(sid,num,name,attempts){
           await updateRecord(sid,{stage:'returning',delivery_attempts:3,return_reason:reason,returned_at:new Date().toISOString()});
           await addOrderNote(sid,`🔄 3rd failed delivery on ${fmtDate(new Date())}. Returning. Reason: ${reason}`);
           showToast(`${num} — Returning to warehouse`,'warn'); loadAll();
-        }catch(e){showToast('Error: '+e.message,'error');}
+        }catch(e){showToast('Error: '+e.message,'error'); loadAll();}
       });
   } else {
     showModal(`Failed Delivery — Attempt ${next}`,
@@ -2219,7 +2239,7 @@ function failedDelivery(sid,num,name,attempts){
           await updateRecord(sid,{delivery_attempts:next});
           await addOrderNote(sid,`🔄 Delivery attempt ${next} failed on ${fmtDate(new Date())}${note?' — '+note:''}.`);
           showToast(`${num} — Attempt ${next} recorded`,'warn'); loadAll();
-        }catch(e){showToast('Error: '+e.message,'error');}
+        }catch(e){showToast('Error: '+e.message,'error'); loadAll();}
       });
   }
 }
@@ -2233,7 +2253,7 @@ function rejectOrder(sid,num,name){
         await updateRecord(sid,{stage:'returning',return_reason:reason,returned_at:new Date().toISOString()});
         await addOrderNote(sid,`✗ Rejected by customer on ${fmtDate(new Date())}. Returning. Reason: ${reason}`);
         showToast(`${num} — Marked as Returning`,'warn'); loadAll();
-      }catch(e){showToast('Error: '+e.message,'error');}
+      }catch(e){showToast('Error: '+e.message,'error'); loadAll();}
     });
 }
 
@@ -2248,7 +2268,7 @@ function confirmReturned(sid,num,name){
         await cancelShopifyOrder(sid);
         await updateRecord(sid,{stage:'cancelled_voided',return_confirmed_at:new Date().toISOString(),cancelled_at:new Date().toISOString()});
         showToast(`${num} — Received, restocked & closed ✓`,'success'); loadAll();
-      }catch(e){showToast('Error: '+e.message,'error');}
+      }catch(e){showToast('Error: '+e.message,'error'); loadAll();}
     });
 }
 
@@ -2292,7 +2312,7 @@ function cancelOrder(sid,num,name,reason){
         console.error('[cancel] unexpected error:', e);
         showToast('Error: '+e.message,'error');
       }
-    });
+    },'Confirm & Cancel');
 }
 
 // ════════════════════════════════════════
@@ -2308,13 +2328,13 @@ async function saveNote(sid){
     showToast('Note saved ✓','success');
     document.getElementById('note-'+sid).classList.remove('open');
     inp.value=''; loadAll();
-  }catch(e){showToast('Error: '+e.message,'error');}
+  }catch(e){showToast('Error: '+e.message,'error'); loadAll();}
 }
 
 // ════════════════════════════════════════
 // MODAL
 // ════════════════════════════════════════
-function showModal(title,desc,type,textareaLabel,onConfirm){
+function showModal(title,desc,type,textareaLabel,onConfirm,confirmLabel){
   document.getElementById('modal-title').textContent=title;
   document.getElementById('modal-desc').innerHTML=desc;
   const ta=document.getElementById('modal-textarea');
@@ -2322,7 +2342,7 @@ function showModal(title,desc,type,textareaLabel,onConfirm){
   else { ta.style.display='none'; ta.value=''; }
   const btn=document.getElementById('modal-confirm-btn');
   btn.className=`modal-btn ${type}`;
-  btn.textContent=type==='danger'?'Confirm & Cancel':type==='orange'?'Confirm':'Confirm';
+  btn.textContent=confirmLabel||'Confirm';
   pendingAction=onConfirm;
   const overlay=document.getElementById('modal-overlay');
   const confirmBtn=document.getElementById('modal-confirm-btn');
@@ -2337,10 +2357,15 @@ function closeModal(){
   pendingAction = null; 
 }
 
-function modalConfirm(){ 
-  const actionToExecute = pendingAction; 
-  closeModal(); 
-  if(actionToExecute) actionToExecute(); 
+let actionRunning=false;
+// Runs one confirmed action at a time, so a double tap can't send it twice.
+async function modalConfirm(){
+  const actionToExecute = pendingAction;
+  closeModal();
+  if(!actionToExecute) return;
+  if(actionRunning){ showToast('Please wait — the previous action is still running','info'); return; }
+  actionRunning=true;
+  try{ await actionToExecute(); } finally { actionRunning=false; }
 }
 document.getElementById('modal-overlay').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
 
