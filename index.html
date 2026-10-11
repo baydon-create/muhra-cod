@@ -98,7 +98,6 @@ body { font-family: var(--font); background: var(--surface-1); color: var(--navy
 }
 .pin-btn:hover { background: rgba(201,162,83,.10); border-color: rgba(201,162,83,.3); color: #F5F0E8; }
 .pin-btn:active { transform: scale(.93); background: rgba(201,162,83,.18); }
-.pin-btn.zero { grid-column: 2; }
 .pin-error { color: #E05C52; font-size: .68rem; margin-top: 1rem; font-family: var(--mono); min-height: 1rem; letter-spacing: .04em; }
 
 /* ── HEADER ─────────────────────── */
@@ -672,10 +671,7 @@ header {
   </div>
   <div class="pin-box">
     <div class="pin-label">Enter PIN</div>
-    <div class="pin-dots">
-      <div class="pin-dot" id="d0"></div><div class="pin-dot" id="d1"></div>
-      <div class="pin-dot" id="d2"></div><div class="pin-dot" id="d3"></div>
-    </div>
+    <div class="pin-dots" id="pin-dots"></div>
     <div class="pin-grid">
       <button class="pin-btn" onclick="pinPress('1')">1</button>
       <button class="pin-btn" onclick="pinPress('2')">2</button>
@@ -686,8 +682,9 @@ header {
       <button class="pin-btn" onclick="pinPress('7')">7</button>
       <button class="pin-btn" onclick="pinPress('8')">8</button>
       <button class="pin-btn" onclick="pinPress('9')">9</button>
-      <button class="pin-btn zero" onclick="pinPress('0')">0</button>
       <button class="pin-btn" onclick="pinDelete()">⌫</button>
+      <button class="pin-btn" onclick="pinPress('0')">0</button>
+      <button class="pin-btn" id="pin-ok" onclick="checkPin()">✓</button>
     </div>
     <div class="pin-error" id="pin-error"></div>
   </div>
@@ -868,15 +865,17 @@ header {
 // ════════════════════════════════════════
 // CONFIG
 // ════════════════════════════════════════
-const PROXY  = 'https://ltwzmjqrlvqbndmipufm.supabase.co/functions/v1/shopify-proxy';
-const SB_URL = 'https://ltwzmjqrlvqbndmipufm.supabase.co';
+// All Shopify and database access goes through the cod-api edge function,
+// which checks the PIN server-side. No PINs or secrets live in this page.
+const API    = 'https://ltwzmjqrlvqbndmipufm.supabase.co/functions/v1/cod-api';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0d3ptanFybHZxYm5kbWlwdWZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMDA3NTEsImV4cCI6MjA5MjY3Njc1MX0.pvp5NFr2tOTw_MJHIxHO9kK7cQ75QjL5N8AcewXIVOM';
-const PINS   = { '0000':'operator', '1111':'viewer' };
+const PIN_MIN = 4, PIN_MAX = 8;
 
 // ════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════
 let currentRole   = null;
+let sessionPin    = '';    // kept in memory only, sent to cod-api with each call
 let pendingAction = null;
 let pinBuffer     = '';
 let activeTab     = 'awaiting_deposit';
@@ -895,15 +894,37 @@ let variantsCacheLoaded = false;
 // ════════════════════════════════════════
 // PIN
 // ════════════════════════════════════════
-function pinPress(d){ if(pinBuffer.length>=4)return; pinBuffer+=d; updateDots(); if(pinBuffer.length===4)setTimeout(checkPin,150); }
-function pinDelete(){ pinBuffer=pinBuffer.slice(0,-1); updateDots(); }
-function updateDots(){ for(let i=0;i<4;i++) document.getElementById('d'+i).classList.toggle('filled',i<pinBuffer.length); }
-function checkPin(){
-  const p=pinBuffer; pinBuffer=''; updateDots();
-  const role=PINS[p];
-  if(role){ currentRole=role; enterApp(); }
-  else { document.getElementById('pin-error').textContent='Incorrect PIN'; setTimeout(()=>document.getElementById('pin-error').textContent='',2000); }
+let pinChecking=false;
+function pinPress(d){ if(pinChecking||pinBuffer.length>=PIN_MAX)return; pinBuffer+=d; updateDots(); }
+function pinDelete(){ if(pinChecking)return; pinBuffer=pinBuffer.slice(0,-1); updateDots(); }
+function updateDots(){
+  const n=Math.max(PIN_MIN,pinBuffer.length);
+  document.getElementById('pin-dots').innerHTML=Array.from({length:n},(_,i)=>`<div class="pin-dot${i<pinBuffer.length?' filled':''}"></div>`).join('');
 }
+function pinError(msg){
+  const el=document.getElementById('pin-error');
+  el.textContent=msg; setTimeout(()=>{ if(el.textContent===msg) el.textContent=''; },3000);
+}
+async function checkPin(){
+  if(pinChecking) return;
+  const p=pinBuffer;
+  if(p.length<PIN_MIN){ pinError(`Enter at least ${PIN_MIN} digits`); return; }
+  pinChecking=true;
+  try{
+    const res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json','apikey':SB_KEY,'x-cod-pin':p},body:JSON.stringify({action:'login'})});
+    const data=await res.json().catch(()=>({}));
+    if(res.ok&&(data.role==='operator'||data.role==='viewer')){ sessionPin=p; currentRole=data.role; enterApp(); }
+    else pinError(data.error||'Incorrect PIN');
+  }catch(e){ pinError('Network error — try again'); }
+  finally{ pinChecking=false; pinBuffer=''; updateDots(); }
+}
+document.addEventListener('keydown',e=>{
+  if(document.getElementById('pin-screen').classList.contains('hidden')) return;
+  if(/^[0-9]$/.test(e.key)) pinPress(e.key);
+  else if(e.key==='Backspace') pinDelete();
+  else if(e.key==='Enter') checkPin();
+});
+updateDots();
 function enterApp(){
   document.getElementById('pin-screen').classList.add('hidden');
   document.getElementById('app').style.display='block';
@@ -962,7 +983,10 @@ function updateStickyTops(){
   if(ctrlBar) ctrlBar.style.top = top+'px';
 }
 function logout(){
-  currentRole=null; pinBuffer=''; updateDots();
+  currentRole=null; sessionPin=''; pinBuffer=''; updateDots();
+  allMerged=[]; orderMap={};
+  document.getElementById('pipeline').innerHTML='';
+  closeModal(); closeEditor();
   document.getElementById('pin-screen').classList.remove('hidden');
   document.getElementById('app').style.display='none';
   document.getElementById('view-only-bar').classList.remove('visible');
@@ -997,14 +1021,19 @@ function switchStage(stage){
 // ════════════════════════════════════════
 // SHOPIFY via PROXY
 // ════════════════════════════════════════
-async function shopifyFetch(path, method='GET', bodyObj=null){
-  const res=await fetch(PROXY,{
+async function apiCall(payload, label){
+  const res=await fetch(API,{
     method:'POST',
-    headers:{'Content-Type':'application/json','apikey':SB_KEY},
-    body:JSON.stringify({path,method,body:bodyObj})
+    headers:{'Content-Type':'application/json','apikey':SB_KEY,'x-cod-pin':sessionPin},
+    body:JSON.stringify(payload)
   });
-  if(!res.ok){ const t=await res.text(); throw new Error(`Shopify ${res.status}: ${t}`); }
-  return res.json();
+  if(res.status===401&&currentRole){ logout(); throw new Error('Session expired — enter PIN again'); }
+  if(!res.ok){ const t=await res.text(); throw new Error(`${label} ${res.status}: ${t}`); }
+  const text=await res.text();
+  return text?JSON.parse(text):{};
+}
+async function shopifyFetch(path, method='GET', bodyObj=null){
+  return apiCall({action:'shopify',path,method,body:bodyObj},'Shopify');
 }
 
 // ── Paginated Shopify order fetcher ──────────────────────────────────────────
@@ -1179,7 +1208,7 @@ async function loadAllProductsToCache(){
     if(resultsEl){
       const msg=e.message&&e.message.includes('403')
         ?'⚠ read_products scope missing — contact admin'
-        :`Error loading products: ${e.message}`;
+        :`Error loading products: ${h(e.message)}`;
       resultsEl.innerHTML=`<div class="search-empty" style="color:var(--danger)">${msg}</div>`;
       resultsEl.classList.add('open');
     }
@@ -1220,24 +1249,16 @@ function hasShippedByAccurateTag(order){
   const tags = (order.tags||'').split(',').map(t=>t.trim().toLowerCase());
   return tags.includes('shipped-by-accurate');
 }
-async function sbFetch(path,method='GET',body=null){
-  const res=await fetch(`${SB_URL}/rest/v1/${path}`,{
-    method,
-    headers:{'apikey':SB_KEY,'Authorization':`Bearer ${SB_KEY}`,'Content-Type':'application/json','Prefer':method==='POST'?'return=representation':''},
-    body:body?JSON.stringify(body):null
-  });
-  if(res.status===204||method==='DELETE') return {};
-  // CRITICAL: surface Supabase errors instead of silently parsing them as success
-  if(!res.ok){
-    const errBody=await res.text();
-    console.error(`[supabase] ${method} ${path} failed:`, res.status, errBody);
-    throw new Error(`Supabase ${res.status}: ${errBody}`);
-  }
-  return res.json();
+// Viewers are read-only (enforced server-side); their loads skip the automatic stage sync writes.
+async function getPipelineRecords(){ return apiCall({action:'db',op:'select'},'Database'); }
+async function updateRecord(sid,data){
+  if(currentRole!=='operator') return {};
+  return apiCall({action:'db',op:'update',shopify_order_id:String(sid),data:{...data,updated_at:new Date().toISOString()}},'Database');
 }
-async function getPipelineRecords(){ return sbFetch('cod_pipeline?select=*'); }
-async function updateRecord(sid,data){ return sbFetch(`cod_pipeline?shopify_order_id=eq.${sid}`,'PATCH',{...data,updated_at:new Date().toISOString()}); }
-async function insertRecord(data){ return sbFetch('cod_pipeline','POST',data); }
+async function insertRecord(data){
+  if(currentRole!=='operator') return [data];
+  return apiCall({action:'db',op:'insert',data},'Database');
+}
 
 // ════════════════════════════════════════
 // LOAD & MERGE
@@ -1281,7 +1302,7 @@ async function loadAll(){
           edit_flagged:false,
           payment_source:isPaidOnline?'paid_online':'cod'
         };
-        try{ const ins=await insertRecord(newRec); rec=Array.isArray(ins)?ins[0]:newRec; }catch(e){ rec=newRec; }
+        try{ const ins=await insertRecord(newRec); rec=(Array.isArray(ins)&&ins[0])||newRec; }catch(e){ rec=newRec; }
       } else {
         // ── Voided / cancelled on Shopify always overrides any stage except already-collected ──
         // (If we manually collected it on the dashboard, leave it as collected)
@@ -1446,14 +1467,14 @@ function renderRow(stage,order,rec,isOp){
   const daysLeft=7-daysOld;
   const isPaidOnline=rec.payment_source==='paid_online'||(order&&order.financial_status==='paid');
   const itemCount = order ? (order.line_items||[]).length : 0;
-  const itemsPreview = order ? (order.line_items||[]).slice(0,1).map(i=>`${i.name} ×${i.quantity}`).join('') + (itemCount>1?` +${itemCount-1} more`:'') : '';
+  const itemsPreview = order ? h((order.line_items||[]).slice(0,1).map(i=>`${i.name} ×${i.quantity}`).join('') + (itemCount>1?` +${itemCount-1} more`:'')) : '';
   const itemsDataAttr = order ? encodeURIComponent(JSON.stringify((order.line_items||[]).map(i=>({name:i.name,qty:i.quantity,price:i.price})))) : '';
   const note  = rec.notes||(order?order.note:'')||'';
   const phone = order?(order.billing_address?.phone||order.shipping_address?.phone||''):'';
   const attempts=rec.delivery_attempts||0;
   const isUrgent=stage==='awaiting_deposit'&&daysLeft<=1&&!isPaidOnline;
   const isHold  =rec.edit_flagged;
-  const esc=s=>String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const esc=jsArg;
   const shopifyLink=`https://muhrastore-2.myshopify.com/admin/orders/${sid}`;
 
   // Countdown badge
@@ -1472,9 +1493,9 @@ function renderRow(stage,order,rec,isOp){
   // Status badges
   let badges='';
   if(stage==='confirmed'&&hasArabicConfirmation(note)) badges+=`<div class="badge paid-online" style="background:#f0fdf4;color:#15803d;border-color:#86efac">🔤 Auto-confirmed</div>`;
-  if(isHold&&(stage==='confirmed'||stage==='on_hold')) badges+=`<div class="badge hold">🔧 HOLD${rec.edit_note?' · '+rec.edit_note:''}</div>`;
+  if(isHold&&(stage==='confirmed'||stage==='on_hold')) badges+=`<div class="badge hold">🔧 HOLD${rec.edit_note?' · '+h(rec.edit_note):''}</div>`;
   if(isPaidOnline&&stage==='confirmed') badges+=`<div class="badge paid-online">✅ Payment Verified</div>`;
-  if(stage==='returning'&&rec.return_reason) badges+=`<div class="badge return">↩ ${rec.return_reason}</div>`;
+  if(stage==='returning'&&rec.return_reason) badges+=`<div class="badge return">↩ ${h(rec.return_reason)}</div>`;
   if(attempts>0&&stage==='in_delivery') badges+=`<div class="badge attempts">Attempt ${attempts}/3</div>`;
   if(stage==='cancelled_voided') badges+=`<div class="badge return" style="background:#f5f5f4;color:#57534e;border-color:#d6d3d1">${order&&order.financial_status==='voided'?'🚫 Voided':'✕ Cancelled'}</div>`;
   if(stage==='in_delivery'&&order&&hasShippedByAccurateTag(order)) badges+=`<div class="badge attempts" style="background:#f0f9ff;color:#075985;border-color:#7dd3fc">📦 Accurate</div>`;
@@ -1491,8 +1512,8 @@ function renderRow(stage,order,rec,isOp){
             <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit</button>
             <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — customer request')">✕</button>
           </div>
-          <div class="note-area" id="note-${sid}">
-            <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
+          <div class="note-area" id="note-${h(sid)}">
+            <textarea class="note-input" id="ni-${h(sid)}" rows="2" placeholder="Add note..."></textarea>
             <button class="note-save" onclick="saveNote('${esc(sid)}')">Save</button>
           </div>
           <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Note</button>`;
@@ -1503,8 +1524,8 @@ function renderRow(stage,order,rec,isOp){
             <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit</button>
             <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — no deposit')">✕</button>
           </div>
-          <div class="note-area" id="note-${sid}">
-            <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
+          <div class="note-area" id="note-${h(sid)}">
+            <textarea class="note-input" id="ni-${h(sid)}" rows="2" placeholder="Add note..."></textarea>
             <button class="note-save" onclick="saveNote('${esc(sid)}')">Save</button>
           </div>
           <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Note</button>`;
@@ -1523,8 +1544,8 @@ function renderRow(stage,order,rec,isOp){
           <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled by customer after deposit')">✕ Cancel</button>
           <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Note</button>
         </div>
-        <div class="note-area" id="note-${sid}">
-          <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
+        <div class="note-area" id="note-${h(sid)}">
+          <textarea class="note-input" id="ni-${h(sid)}" rows="2" placeholder="Add note..."></textarea>
           <button class="note-save" onclick="saveNote('${esc(sid)}')">Save</button>
         </div>`;
     } else if(stage==='in_delivery'){
@@ -1539,15 +1560,15 @@ function renderRow(stage,order,rec,isOp){
           <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit</button>
           <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Note</button>
         </div>
-        <div class="note-area" id="note-${sid}">
-          <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
+        <div class="note-area" id="note-${h(sid)}">
+          <textarea class="note-input" id="ni-${h(sid)}" rows="2" placeholder="Add note..."></textarea>
           <button class="note-save" onclick="saveNote('${esc(sid)}')">Save</button>
         </div>`;
     } else if(stage==='returning'){
       actions=`
         <button class="btn-action btn-confirm" onclick="confirmReturned('${esc(sid)}','${esc(num)}','${esc(name)}')">📦 Received → Cancel</button>
-        <div class="note-area" id="note-${sid}">
-          <textarea class="note-input" id="ni-${sid}" rows="2" placeholder="Add note..."></textarea>
+        <div class="note-area" id="note-${h(sid)}">
+          <textarea class="note-input" id="ni-${h(sid)}" rows="2" placeholder="Add note..."></textarea>
           <button class="note-save" onclick="saveNote('${esc(sid)}')">Save</button>
         </div>
         <button class="btn-action btn-secondary" onclick="toggleNote('${esc(sid)}')">📝 Note</button>`;
@@ -1568,22 +1589,22 @@ function renderRow(stage,order,rec,isOp){
   }
 
   const rowClass=`order-row${isUrgent?' urgent':''}${isHold&&(stage==='confirmed'||stage==='on_hold')?' on-hold':''}${isPaidOnline&&stage==='confirmed'?' paid-confirmed':''}`;
-  const phoneNorm=normalizeEgPhone(phone);
+  const phoneNorm=h(normalizeEgPhone(phone));
 
-  return `<div class="${rowClass}" id="card-${sid}">
+  return `<div class="${rowClass}" id="card-${h(sid)}">
     <div class="row-cell cell-id">
-      <div class="order-num">${num}</div>
+      <div class="order-num">${h(num)}</div>
       <div class="order-date">${fmtDate(created)}</div>
       ${countdown}
     </div>
     <div class="row-cell cell-customer row-cell-border">
-      <div class="customer-name">${name}</div>
+      <div class="customer-name">${h(name)}</div>
       <div class="order-meta-row">
         ${payBadge}
-        ${itemsPreview?`<button class="items-btn" onclick="openItemsPopup('${esc(num)}','${esc(name)}',${price},'${itemsDataAttr}')">📦 ${itemsPreview}</button>`:''}
+        ${itemsPreview?`<button class="items-btn" onclick="openItemsPopup('${esc(num)}','${esc(name)}',${price},'${esc(itemsDataAttr)}')">📦 ${itemsPreview}</button>`:''}
       </div>
       ${badges?`<div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.3rem">${badges}</div>`:''}
-      ${note?`<div class="order-note" style="margin-top:.35rem">${note}</div>`:''}
+      ${note?`<div class="order-note" style="margin-top:.35rem">${h(note)}</div>`:''}
     </div>
     <div class="row-cell cell-price row-cell-border">
       <div class="order-price">EGP ${price.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
@@ -1659,8 +1680,8 @@ function openItemsPopup(num, name, total, itemsEncoded){
   document.getElementById('items-popup-total').textContent=`EGP ${parseFloat(total).toLocaleString('en-EG',{minimumFractionDigits:2})}`;
   document.getElementById('items-popup-list').innerHTML=items.map(i=>`
     <div class="item-row">
-      <span class="item-name">${i.name}</span>
-      <span class="item-qty">×${i.qty}</span>
+      <span class="item-name">${h(i.name)}</span>
+      <span class="item-qty">×${h(i.qty)}</span>
       <span class="item-price">EGP ${(parseFloat(i.price)*i.qty).toLocaleString('en-EG',{minimumFractionDigits:2})}</span>
     </div>`).join('');
   document.getElementById('items-popup-overlay').classList.add('open');
@@ -1753,8 +1774,8 @@ function renderEditorBody(){
           editorItems.map((item,idx)=>`
             <div class="editor-item${item.removed?' item-removed':''}" id="eitem-${idx}">
               <div class="editor-item-info">
-                <div class="editor-item-name">${item.title}</div>
-                ${item.variant_title?`<div class="editor-item-variant">${item.variant_title}</div>`:''}
+                <div class="editor-item-name">${h(item.title)}</div>
+                ${item.variant_title?`<div class="editor-item-variant">${h(item.variant_title)}</div>`:''}
               </div>
               <div class="editor-item-price">EGP ${(item.price*item.quantity).toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
               ${item.removed?
@@ -1834,7 +1855,7 @@ function renderEditorBody(){
 
     <div class="editor-section">
       <div class="editor-section-title">Order Note</div>
-      <textarea class="editor-note-input" id="editor-note-field" rows="3" placeholder="Add or edit the order note sent to Shopify…">${editorNote}</textarea>
+      <textarea class="editor-note-input" id="editor-note-field" rows="3" placeholder="Add or edit the order note sent to Shopify…">${h(editorNote)}</textarea>
     </div>
   `;
 }
@@ -1880,8 +1901,8 @@ function renderSearchResults(variants, resultsEl){
   resultsEl.innerHTML=variants.map((v,i)=>`
     <div class="search-result-item" onclick="addProductToOrder(${i})">
       <span class="sri-price">EGP ${v.price.toLocaleString('en-EG',{minimumFractionDigits:2})}</span>
-      <div class="sri-name">${v.display}</div>
-      ${v.sku?`<div class="sri-variant">SKU: ${v.sku}</div>`:''}
+      <div class="sri-name">${h(v.display)}</div>
+      ${v.sku?`<div class="sri-variant">SKU: ${h(v.sku)}</div>`:''}
     </div>`).join('');
   resultsEl._variants=variants;
   resultsEl.classList.add('open');
@@ -1947,7 +1968,7 @@ function reviewOrderEdits(){
   _pendingSaveData={note,disc,ship,grandTotal,newItems,removedItems,qtyChanges,origDisc,origShip};
 
   // Build change rows
-  const esc2=s=>String(s).replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const esc2=h;
   let rows='';
   removedItems.forEach(i=>{ rows+=`<div class="chg-row chg-remove"><span class="chg-icon">✕</span><span>Remove <strong>${esc2(i.title)}</strong></span></div>`; });
   newItems.forEach(i=>{ rows+=`<div class="chg-row chg-add"><span class="chg-icon">＋</span><span>Add <strong>${esc2(i.title)}</strong> ×${i.quantity} — EGP ${(i.price*i.quantity).toLocaleString('en-EG',{minimumFractionDigits:2})}</span></div>`; });
@@ -1986,9 +2007,9 @@ function reviewOrderEdits(){
       <span style="font-family:var(--mono);font-size:1rem;font-weight:600;color:var(--gold)">EGP ${grandTotal.toLocaleString('en-EG',{minimumFractionDigits:2})}</span>
     </div>
 
-    <a href="${SHOPIFY_ADMIN}/${editorOrderId}" target="_blank" rel="noopener"
+    <a href="${SHOPIFY_ADMIN}/${h(editorOrderId)}" target="_blank" rel="noopener"
        style="display:flex;align-items:center;justify-content:center;gap:.5rem;width:100%;padding:.72rem;background:#1A6B1A;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:.78rem;margin-bottom:.5rem;box-shadow:0 2px 8px rgba(26,107,26,.25)">
-      🔗 Open Order ${editorOrderObj?.name||('#'+editorOrderId)} in Shopify Admin
+      🔗 Open Order ${h(editorOrderObj?.name||('#'+editorOrderId))} in Shopify Admin
     </a>
     <div style="font-size:.62rem;color:var(--muted);text-align:center;margin-bottom:.9rem">
       Apply all changes above, then click the button below to update the COD dashboard.
@@ -2054,7 +2075,7 @@ async function confirmSaveEdits(){
 // ════════════════════════════════════════
 function confirmDeposit(sid,num,name){
   showModal('Confirm Deposit Received',
-    `Mark deposit received for <strong>${name}</strong> (${num})?<br>Order moves to Confirmed.`,
+    `Mark deposit received for <strong>${h(name)}</strong> (${h(num)})?<br>Order moves to Confirmed.`,
     'confirm',null,async()=>{
       try{
         await updateRecord(sid,{stage:'confirmed',deposit_confirmed_at:new Date().toISOString(),deposit_confirmed_by:'Asmaa'});
@@ -2068,7 +2089,7 @@ function confirmDeposit(sid,num,name){
 // ACTIONS — CONFIRMED
 // ════════════════════════════════════════
 function markShipped(sid,num,name){
-  showModal('Handed to Wijha',`Confirm <strong>${name}</strong>'s order (${num}) handed to Wijha courier?`,
+  showModal('Handed to Wijha',`Confirm <strong>${h(name)}</strong>'s order (${h(num)}) handed to Wijha courier?`,
     'confirm',null,async()=>{
       try{
         await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString(),edit_flagged:false});
@@ -2080,7 +2101,7 @@ function markShipped(sid,num,name){
 
 function flagEdit(sid,num,name){
   showModal('Flag Order for Edit',
-    `Flag <strong>${name}</strong>'s order (${num}) as needing edit before shipping?<br>"Hand to Wijha" will be disabled until resolved.`,
+    `Flag <strong>${h(name)}</strong>'s order (${h(num)}) as needing edit before shipping?<br>"Hand to Wijha" will be disabled until resolved.`,
     'orange','Describe what needs editing (optional):',async()=>{
       const note=document.getElementById('modal-textarea').value.trim();
       try{
@@ -2092,7 +2113,7 @@ function flagEdit(sid,num,name){
 }
 
 function clearHold(sid,num){
-  showModal('Clear Edit Hold',`Confirm all edits resolved for order ${num}? This re-enables shipping.`,
+  showModal('Clear Edit Hold',`Confirm all edits resolved for order ${h(num)}? This re-enables shipping.`,
     'confirm',null,async()=>{
       try{
         await updateRecord(sid,{edit_flagged:false,edit_note:'',stage:'confirmed'});
@@ -2103,7 +2124,7 @@ function clearHold(sid,num){
 }
 
 function resolveHoldAndShip(sid,num,name){
-  showModal('Resolved & Hand to Wijha',`Confirm edits done and <strong>${name}</strong>'s order (${num}) handed to Wijha?`,
+  showModal('Resolved & Hand to Wijha',`Confirm edits done and <strong>${h(name)}</strong>'s order (${h(num)}) handed to Wijha?`,
     'confirm',null,async()=>{
       try{
         await updateRecord(sid,{stage:'in_delivery',edit_flagged:false,edit_note:'',shipped_at:new Date().toISOString()});
@@ -2118,7 +2139,7 @@ function resolveHoldAndShip(sid,num,name){
 // ════════════════════════════════════════
 function markCollected(sid,num,name,price){
   showModal('Mark Collected & Paid',
-    `Confirm <strong>${name}</strong>'s order (${num}) — EGP ${price.toLocaleString()} collected?<br>Archives order as Paid on Shopify.`,
+    `Confirm <strong>${h(name)}</strong>'s order (${h(num)}) — EGP ${price.toLocaleString()} collected?<br>Archives order as Paid on Shopify.`,
     'confirm',null,async()=>{
       try{
         await updateRecord(sid,{stage:'collected',collected_at:new Date().toISOString()});
@@ -2133,7 +2154,7 @@ function failedDelivery(sid,num,name,attempts){
   const next=attempts+1;
   if(next>=3){
     showModal('3rd Failed Attempt',
-      `<strong>${name}</strong>'s order (${num}) has failed 3 delivery attempts.<br>Mark as Returning to warehouse?`,
+      `<strong>${h(name)}</strong>'s order (${h(num)}) has failed 3 delivery attempts.<br>Mark as Returning to warehouse?`,
       'orange','Reason for return (optional):',async()=>{
         const reason=document.getElementById('modal-textarea').value.trim()||'3 failed delivery attempts';
         try{
@@ -2144,7 +2165,7 @@ function failedDelivery(sid,num,name,attempts){
       });
   } else {
     showModal(`Failed Delivery — Attempt ${next}`,
-      `Record attempt ${next} failure for <strong>${name}</strong>'s order (${num})?`,
+      `Record attempt ${next} failure for <strong>${h(name)}</strong>'s order (${h(num)})?`,
       'orange','Reason / note (optional):',async()=>{
         const note=document.getElementById('modal-textarea').value.trim();
         try{
@@ -2158,7 +2179,7 @@ function failedDelivery(sid,num,name,attempts){
 
 function rejectOrder(sid,num,name){
   showModal('Customer Rejected Delivery',
-    `<strong>${name}</strong>'s order (${num}) was refused at the door?<br>Moves to Returning — inventory restocked after warehouse confirmation.`,
+    `<strong>${h(name)}</strong>'s order (${h(num)}) was refused at the door?<br>Moves to Returning — inventory restocked after warehouse confirmation.`,
     'danger','Reason for rejection (optional):',async()=>{
       const reason=document.getElementById('modal-textarea').value.trim()||'Rejected by customer at delivery';
       try{
@@ -2174,7 +2195,7 @@ function rejectOrder(sid,num,name){
 // ════════════════════════════════════════
 function confirmReturned(sid,num,name){
   showModal('Confirm Received at Warehouse',
-    `Confirm <strong>${name}</strong>'s order (${num}) physically received back at warehouse?<br><strong>This will cancel the order on Shopify and restock inventory.</strong>`,
+    `Confirm <strong>${h(name)}</strong>'s order (${h(num)}) physically received back at warehouse?<br><strong>This will cancel the order on Shopify and restock inventory.</strong>`,
     'danger',null,async()=>{
       try{
         await cancelShopifyOrder(sid);
@@ -2189,7 +2210,7 @@ function confirmReturned(sid,num,name){
 // ════════════════════════════════════════
 function cancelOrder(sid,num,name,reason){
   showModal('Cancel Order',
-    `Cancel <strong>${name}</strong>'s order (${num})?<br>Order will be cancelled on Shopify and inventory restocked. <strong>Cannot be undone.</strong>`,
+    `Cancel <strong>${h(name)}</strong>'s order (${h(num)})?<br>Order will be cancelled on Shopify and inventory restocked. <strong>Cannot be undone.</strong>`,
     'danger',null,async()=>{
       console.log('[cancel] start for', sid, num);
       try{
@@ -2295,9 +2316,14 @@ function showToast(msg,type='info'){
   const c=document.getElementById('toast-container');
   const t=document.createElement('div');
   t.className=`toast ${type}`;
-  t.innerHTML=`<span>${{success:'✓',error:'✕',info:'ℹ',warn:'⚠'}[type]}</span> ${msg}`;
+  t.innerHTML=`<span>${{success:'✓',error:'✕',info:'ℹ',warn:'⚠'}[type]}</span> `;
+  t.appendChild(document.createTextNode(msg));
   c.appendChild(t); setTimeout(()=>t.remove(),4000);
 }
+// Escape text for HTML content and attribute values.
+function h(s){ return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// Escape a value for use inside a single-quoted JS string in an inline onclick="..." attribute.
+function jsArg(s){ return h(String(s??'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r?\n/g,'\\n')); }
 function fmtDate(d){ return new Date(d).toLocaleDateString('en-EG',{day:'numeric',month:'short',year:'numeric'}); }
 
 function normalizeEgPhone(raw){
