@@ -34,6 +34,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cod-pin",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Expose-Headers": "X-Shopify-Link",
 };
 
 const PIPELINE_COLUMNS = new Set([
@@ -174,7 +175,7 @@ function checkShopifyCall(role: Role, path: string, method: string, body: any): 
   if (role !== "operator") return { ok: false };
   if (path.includes("?")) return { ok: false };
 
-  const m = rawPath.match(/^orders\/(\d+)(?:\/(transactions|cancel|refunds|refunds\/calculate))?\.json$/);
+  const m = rawPath.match(/^orders\/(\d+)(?:\/(transactions|cancel|close|refunds|refunds\/calculate))?\.json$/);
   if (!m) return { ok: false };
   const [, orderId, sub] = m;
 
@@ -189,7 +190,7 @@ function checkShopifyCall(role: Role, path: string, method: string, body: any): 
     const refund = body?.refund ?? {};
     return { ok: true, body: { refund: { ...refund, transactions: [] } } };
   }
-  if (method === "POST" && (sub === "transactions" || sub === "cancel" || sub === "refunds/calculate")) {
+  if (method === "POST" && (sub === "transactions" || sub === "cancel" || sub === "close" || sub === "refunds/calculate")) {
     return { ok: true, body };
   }
   return { ok: false };
@@ -211,10 +212,35 @@ async function handleShopify(role: Role, payload: any) {
   if (res.status === 401) {
     return json({ error: "Shopify rejected the access token — check the SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET secrets" }, 502);
   }
+  // Shopify paginates with a Link header (page_info cursors); pass it on.
+  const link = res.headers.get("link");
   return new Response(await res.text(), {
     status: res.status,
-    headers: { ...CORS, "Content-Type": "application/json" },
+    headers: { ...CORS, "Content-Type": "application/json", ...(link ? { "X-Shopify-Link": link } : {}) },
   });
+}
+
+// Mark a pending (COD) order as paid with the GraphQL orderMarkAsPaid mutation.
+async function handleMarkPaid(role: Role, payload: any) {
+  if (role !== "operator") return json({ error: "View-only access" }, 403);
+  const orderId = String(payload.order_id ?? "");
+  if (!/^\d+$/.test(orderId)) return json({ error: "Bad order id" }, 400);
+  let res: Response;
+  try {
+    res = await shopifyRequest(`graphql.json`, "POST", {
+      query: `mutation markPaid($input: OrderMarkAsPaidInput!) {
+        orderMarkAsPaid(input: $input) {
+          order { id displayFinancialStatus }
+          userErrors { field message }
+        }
+      }`,
+      variables: { input: { id: `gid://shopify/Order/${orderId}` } },
+    });
+  } catch (e) {
+    return json({ error: `Could not get a Shopify access token: ${(e as Error).message}` }, 502);
+  }
+  if (res.status === 401) return json({ error: "Shopify rejected the access token" }, 502);
+  return new Response(await res.text(), { status: res.status, headers: { ...CORS, "Content-Type": "application/json" } });
 }
 
 // ── cod_pipeline ─────────────────────────────────────────────────────────────
@@ -248,8 +274,13 @@ async function handleDb(role: Role, payload: any) {
   if (role !== "operator") return json({ error: "View-only access" }, 403);
 
   if (op === "insert") {
-    const data = pickColumns(payload.data);
-    if (!/^\d+$/.test(String(data.shopify_order_id ?? ""))) return json({ error: "Bad order id" }, 400);
+    // Accepts one record or an array of records.
+    const many = Array.isArray(payload.data);
+    const rows = (many ? payload.data : [payload.data]).map(pickColumns);
+    if (!rows.length || rows.some((r: any) => !/^\d+$/.test(String(r.shopify_order_id ?? "")))) {
+      return json({ error: "Bad order id" }, 400);
+    }
+    const data = many ? rows : rows[0];
     const res = await db("cod_pipeline?on_conflict=shopify_order_id", {
       method: "POST",
       headers: { Prefer: "return=representation,resolution=ignore-duplicates" },
@@ -298,6 +329,7 @@ Deno.serve(async (req) => {
       case "login":   return json({ role });
       case "shopify": return await handleShopify(role, payload);
       case "db":      return await handleDb(role, payload);
+      case "markPaid": return await handleMarkPaid(role, payload);
       default:        return json({ error: "Unknown action" }, 400);
     }
   } catch (e) {

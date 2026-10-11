@@ -884,7 +884,8 @@ let allMerged     = [];
 let editorOrderId    = null;  // shopify order id
 let editorOrderObj   = null;  // full shopify order object
 let editorItems      = [];    // [{line_item_id, variant_id, title, variant_title, quantity, price, removed, isNew}]
-let editorNote       = '';
+let editorNote       = '';    // current text of the note field
+let editorOrigNote   = '';    // note as loaded from Shopify
 let allVariantsCache = [];
 let orderMap = {};  // sid → full shopify order object, populated during render
 let editorDiscount  = 0;   // flat discount EGP
@@ -925,6 +926,9 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='Enter') checkPin();
 });
 updateDots();
+let headerObserver = null;
+// YYYY-MM-DD in the browser's local time zone (toISOString would give the UTC date).
+function localDateStr(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function enterApp(){
   document.getElementById('pin-screen').classList.add('hidden');
   document.getElementById('app').style.display='block';
@@ -936,15 +940,17 @@ function enterApp(){
   const fromEl = document.getElementById('date-from');
   if(!toEl.value){
     const now = new Date();
-    toEl.value = now.toISOString().slice(0,10);
+    toEl.value = localDateStr(now);
     const from = new Date(now); from.setDate(from.getDate()-90);
-    fromEl.value = from.toISOString().slice(0,10);
+    fromEl.value = localDateStr(from);
   }
 
   // Sticky top stack: recalculate whenever header height changes
   updateStickyTops();
-  const ro = new ResizeObserver(updateStickyTops);
-  ro.observe(document.querySelector('header'));
+  if(!headerObserver){
+    headerObserver = new ResizeObserver(updateStickyTops);
+    headerObserver.observe(document.querySelector('header'));
+  }
 
   switchStage('awaiting_deposit');
   loadAll();
@@ -1021,7 +1027,7 @@ function switchStage(stage){
 // ════════════════════════════════════════
 // SHOPIFY via PROXY
 // ════════════════════════════════════════
-async function apiCall(payload, label){
+async function apiRaw(payload, label){
   const res=await fetch(API,{
     method:'POST',
     headers:{'Content-Type':'application/json','apikey':SB_KEY,'x-cod-pin':sessionPin},
@@ -1029,7 +1035,10 @@ async function apiCall(payload, label){
   });
   if(res.status===401&&currentRole){ logout(); throw new Error('Session expired — enter PIN again'); }
   if(!res.ok){ const t=await res.text(); throw new Error(`${label} ${res.status}: ${t}`); }
-  const text=await res.text();
+  return res;
+}
+async function apiCall(payload, label){
+  const text=await (await apiRaw(payload,label)).text();
   return text?JSON.parse(text):{};
 }
 async function shopifyFetch(path, method='GET', bodyObj=null){
@@ -1037,25 +1046,20 @@ async function shopifyFetch(path, method='GET', bodyObj=null){
 }
 
 // ── Paginated Shopify order fetcher ──────────────────────────────────────────
-// Fetches ALL pages for a given query (250 per page) until exhausted
-async function fetchAllPages(baseParams, progressLabel){
+// Follows Shopify's cursor pagination (Link header → page_info) until exhausted.
+async function fetchAllPages(firstPath, progressLabel){
   const orders = [];
-  let page = 1;
-  let pageInfo = null; // Shopify cursor-based pagination via Link header not available in proxy
-  // Use created_at_min/max + since_id pagination instead
-  let sinceId = 0;
-  const limit = 250;
-  while(true){
-    const params = baseParams + (sinceId ? `&since_id=${sinceId}` : '') + `&limit=${limit}`;
-    const data = await shopifyFetch(params);
-    const batch = data.orders || [];
-    if(!batch.length) break;
-    orders.push(...batch);
-    if(batch.length < limit) break; // last page
-    sinceId = batch[batch.length-1].id;
-    page++;
-    const prog = document.getElementById('fetch-progress');
-    if(prog) prog.textContent = `${progressLabel} — ${orders.length} loaded…`;
+  const prog = document.getElementById('fetch-progress');
+  let path = firstPath;
+  while(path){
+    const res = await apiRaw({action:'shopify',path,method:'GET',body:null},'Shopify');
+    const data = JSON.parse(await res.text() || '{}');
+    orders.push(...(data.orders || []));
+    const next = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get('X-Shopify-Link') || '');
+    const pageInfo = next && new URL(next[1]).searchParams.get('page_info');
+    // With page_info, Shopify only accepts limit (and fields) alongside it.
+    path = pageInfo ? `orders.json?limit=250&page_info=${encodeURIComponent(pageInfo)}` : null;
+    if(prog && path) prog.textContent = `${progressLabel} — ${orders.length} loaded…`;
   }
   return orders;
 }
@@ -1065,116 +1069,91 @@ async function getOrders(){
   const toEl   = document.getElementById('date-to');
   const prog   = document.getElementById('fetch-progress');
 
-  // Build date params
+  // Date range in the operator's local time, sent as UTC instants (no raw '+' in the URL).
   let dateParams = '';
-  if(fromEl && fromEl.value) dateParams += `&created_at_min=${fromEl.value}T00:00:00+03:00`;
-  if(toEl   && toEl.value)   dateParams += `&created_at_max=${toEl.value}T23:59:59+03:00`;
+  if(fromEl && fromEl.value) dateParams += `&created_at_min=${encodeURIComponent(new Date(fromEl.value+'T00:00:00').toISOString())}`;
+  if(toEl   && toEl.value)   dateParams += `&created_at_max=${encodeURIComponent(new Date(toEl.value+'T23:59:59.999').toISOString())}`;
 
   if(prog) prog.textContent = 'Fetching…';
-
-  // Run all 5 fetches in parallel — each gets full pagination
-  const [
-    openPending,
-    openPaid,
-    openFulfilled,
-    closedAll,      // archived + closed orders (paid+fulfilled, voided, cancelled)
-    cancelledAll    // explicitly cancelled regardless of payment
-  ] = await Promise.all([
-    fetchAllPages(`orders.json?status=open&financial_status=pending${dateParams}`, 'Open/Pending'),
-    fetchAllPages(`orders.json?status=open&financial_status=paid${dateParams}`, 'Open/Paid'),
-    fetchAllPages(`orders.json?status=open&fulfillment_status=fulfilled${dateParams}`, 'Open/Fulfilled'),
-    fetchAllPages(`orders.json?status=closed${dateParams}`, 'Closed'),
-    fetchAllPages(`orders.json?status=cancelled${dateParams}`, 'Cancelled')
-  ]);
-
-  if(prog) prog.textContent = '';
-
-  // Deduplicate by order id — priority: open > closed > cancelled
-  const seen = new Set();
-  const all = [...openPending, ...openFulfilled, ...openPaid, ...closedAll, ...cancelledAll];
-  return all.filter(o => {
-    if(seen.has(o.id)) return false;
-    seen.add(o.id);
-    return true;
-  });
+  try{
+    // status=any covers open, closed and cancelled orders with every financial status.
+    return await fetchAllPages(`orders.json?status=any&limit=250${dateParams}`, 'Orders');
+  } finally {
+    if(prog) prog.textContent = '';
+  }
 }
 
+// Cancels (unfulfilled) or closes (fulfilled + returned) an order on Shopify,
+// restocking every item and voiding the balance without moving any money.
 async function cancelShopifyOrder(orderId) {
-  console.log('[cancel] Starting full void for order', orderId);
-
   const order = orderMap[orderId];
   if (!order || !order.line_items) {
     throw new Error("Order data not found. Please refresh the page and try again.");
   }
 
-  // ── Step 1: Prepare line items for restocking ──────────────────────────────
-  const refundLineItems = order.line_items.map(item => ({
-    line_item_id: item.id,
-    quantity: item.quantity,
-    restock_type: "cancel"
+  // Items already shipped can only be restocked as a return (Shopify also
+  // refuses to cancel an order that has fulfillments).
+  const isShipped = li => li.fulfillment_status === 'fulfilled' || (li.fulfillable_quantity === 0 && li.quantity > 0);
+  const hasFulfillments = (order.fulfillments || []).length > 0 || order.line_items.some(isShipped);
+
+  // Quantities already refunded (e.g. an earlier attempt that failed half-way) are skipped.
+  const refunded = {};
+  (order.refunds || []).forEach(r => (r.refund_line_items || []).forEach(rli => {
+    refunded[rli.line_item_id] = (refunded[rli.line_item_id] || 0) + rli.quantity;
   }));
+  const refundLineItems = order.line_items
+    .map(li => ({ line_item_id: li.id, quantity: li.quantity - (refunded[li.id] || 0), restock_type: isShipped(li) ? 'return' : 'cancel' }))
+    .filter(i => i.quantity > 0);
 
-  // ── Step 2: Calculate refund (gets location IDs + shipping amount) ─────────
-  console.log('[cancel] Calculating full refund including shipping...');
-  const calcResponse = await shopifyFetch(`orders/${orderId}/refunds/calculate.json`, 'POST', {
-    refund: {
-      refund_line_items: refundLineItems,
-      refund_shipping:   true,   // tells Shopify to include shipping in calculation
-      shipping:          { full_refund: true }  // explicitly request full shipping void
-    }
-  });
+  if (refundLineItems.length) {
+    // Shopify works out restock locations and the shipping amount for us.
+    const calcResponse = await shopifyFetch(`orders/${orderId}/refunds/calculate.json`, 'POST', {
+      refund: { refund_line_items: refundLineItems, shipping: { full_refund: true } }
+    });
+    const calc = calcResponse.refund || {};
+    const shippingAmount = calc.shipping ? parseFloat(calc.shipping.amount || calc.shipping.maximum_refundable || 0) : 0;
+    await shopifyFetch(`orders/${orderId}/refunds.json`, 'POST', {
+      refund: {
+        refund_line_items: (calc.refund_line_items || refundLineItems).map(i => ({
+          line_item_id: i.line_item_id, quantity: i.quantity,
+          restock_type: i.restock_type || (refundLineItems.find(r => r.line_item_id === i.line_item_id) || {}).restock_type,
+          ...(i.location_id ? { location_id: i.location_id } : {})
+        })),
+        shipping: { amount: shippingAmount.toFixed(2) },
+        transactions: [],   // no money moves: this voids the balance
+        notify: false
+      }
+    });
+  }
 
-  const calc = calcResponse.refund || {};
-
-  // ── Step 3: Build the actual refund payload from calculated values ──────────
-  // The calculate endpoint returns the exact amounts; we pass them back verbatim
-  // to ensure shipping is zeroed — never reconstruct manually.
-  const shippingAmount = calc.shipping
-    ? parseFloat(calc.shipping.amount || calc.shipping.maximum_refundable || 0)
-    : 0;
-
-  console.log('[cancel] Shipping to void:', shippingAmount, '| Line items:', calc.refund_line_items?.length);
-
-  const refundPayload = {
-    refund: {
-      // Restock the items
-      refund_line_items: calc.refund_line_items || refundLineItems.map(i => ({
-        line_item_id: i.line_item_id,
-        quantity: i.quantity,
-        restock_type: 'cancel'
-      })),
-      // Void the shipping — use calculated amount
-      shipping: { amount: shippingAmount.toFixed(2) },
-      // transactions: empty array = $0 cash back (void/write-off, not actual refund to customer)
-      transactions: [],
-      // Notify: false — no email to customer
-      notify: false
-    }
-  };
-
-  // ── Step 4: Submit the refund to zero out items + shipping ─────────────────
-  console.log('[cancel] Submitting zero-balance refund...');
-  await shopifyFetch(`orders/${orderId}/refunds.json`, 'POST', refundPayload);
-
-  // ── Step 5: Cancel the order on Shopify ───────────────────────────────────
-  // After the refund, the order balance should be EGP 0.
-  // cancel.json finalises the cancellation and marks it as Cancelled.
-  console.log('[cancel] Cancelling order...');
-  const result = await shopifyFetch(`orders/${orderId}/cancel.json`, 'POST', {
-    reason: 'customer',
-    email:  false      // don't send cancellation email
-  });
-
-  console.log('[cancel] Done — order fully voided including shipping.');
-  return result;
+  if (hasFulfillments) {
+    // Returned order: items are restocked, now archive it.
+    return shopifyFetch(`orders/${orderId}/close.json`, 'POST', {});
+  }
+  return shopifyFetch(`orders/${orderId}/cancel.json`, 'POST', { reason: 'customer', email: false });
 }
 
-async function addOrderNote(orderId, note) { 
-  return shopifyFetch(`orders/${orderId}.json`, 'PUT', { order: { id: Number(orderId), note } }); 
+// Adds a line to the Shopify order note, keeping what is already there
+// (customer instructions, Asmaa's confirmation phrase, earlier history).
+async function addOrderNote(orderId, line) {
+  let current = '';
+  try {
+    const data = await shopifyFetch(`orders.json?ids=${encodeURIComponent(orderId)}&status=any&fields=id,note`);
+    current = ((data.orders || [])[0] || {}).note || '';
+  } catch (e) {
+    current = (orderMap[orderId] && orderMap[orderId].note) || '';
+  }
+  const note = current.trim() ? `${current.trim()}\n${line}` : line;
+  return shopifyFetch(`orders/${orderId}.json`, 'PUT', { order: { id: Number(orderId), note } });
 }
 
-async function markOrderPaid(orderId) { 
-  return shopifyFetch(`orders/${orderId}/transactions.json`, 'POST', { transaction: { kind: 'capture', status: 'success' } }); 
+// Marks a pending COD order as paid, then archives (closes) it.
+async function markOrderPaid(orderId) {
+  const res = await apiCall({ action: 'markPaid', order_id: String(orderId) }, 'Shopify');
+  const errs = (res.errors || []).map(e => e.message)
+    .concat(((res.data || {}).orderMarkAsPaid || {}).userErrors?.map(e => e.message) || []);
+  if (errs.length) throw new Error(errs.join('; '));
+  await shopifyFetch(`orders/${orderId}/close.json`, 'POST', {});
 }
 
 // Load ALL products once into cache when editor opens, then filter locally
@@ -1226,14 +1205,6 @@ function filterVariants(query){
   }).slice(0,20);
 }
 
-// Update line items on Shopify order (using order PUT — edits line_items)
-async function updateShopifyOrderItems(orderId, lineItemUpdates){
-  // lineItemUpdates: [{id, quantity}] for existing, or we remove (set qty=0) and add new via draft order trick
-  // Shopify REST: PUT /orders/:id.json with line_items only works for note/tags; for actual items we use the order edit API
-  // We use: orders/:id.json PUT for note, and direct line_item quantity change
-  return shopifyFetch(`orders/${orderId}.json`,'PUT',{order:{id:Number(orderId), line_items:lineItemUpdates}});
-}
-
 // ── Asmaa's Arabic shipping-confirmed phrases ──────────────────────────────
 const ARABIC_CONFIRMED_PHRASES = [
   'تم تحويل مصاريف الشحن',
@@ -1253,7 +1224,10 @@ function hasShippedByAccurateTag(order){
 async function getPipelineRecords(){ return apiCall({action:'db',op:'select'},'Database'); }
 async function updateRecord(sid,data){
   if(currentRole!=='operator') return {};
-  return apiCall({action:'db',op:'update',shopify_order_id:String(sid),data:{...data,updated_at:new Date().toISOString()}},'Database');
+  const rows=await apiCall({action:'db',op:'update',shopify_order_id:String(sid),data:{...data,updated_at:new Date().toISOString()}},'Database');
+  // PATCH matching nothing still "succeeds"; surface it instead of pretending it saved.
+  if(Array.isArray(rows)&&rows.length===0) throw new Error('Order is not in the pipeline yet — refresh and try again');
+  return rows;
 }
 async function insertRecord(data){
   if(currentRole!=='operator') return [data];
@@ -1263,37 +1237,50 @@ async function insertRecord(data){
 // ════════════════════════════════════════
 // LOAD & MERGE
 // ════════════════════════════════════════
-async function loadAll(){
+let loadInFlight=null, reloadQueued=false, hasLoaded=false;
+
+// Runs one load at a time; a request made while loading runs once afterwards.
+function loadAll(){
+  if(loadInFlight){ reloadQueued=true; return loadInFlight; }
+  loadInFlight=doLoadAll().finally(()=>{
+    loadInFlight=null;
+    if(reloadQueued&&currentRole){ reloadQueued=false; loadAll(); }
+  });
+  return loadInFlight;
+}
+
+async function doLoadAll(){
   const btn=document.getElementById('refresh-btn');
   btn.classList.add('spinning');
   try {
     const [orders,sbRecs]=await Promise.all([getOrders(),getPipelineRecords()]);
+    if(!currentRole) return;   // locked while loading
     const sbMap={};
     if(Array.isArray(sbRecs)) sbRecs.forEach(r=>sbMap[r.shopify_order_id]=r);
 
-    const merged=[];
+    const merged=[], newRecs=[], updates=[];
+    // Stage-sync writes are collected and sent after the loop; one failure must not abort the load.
+    const queueUpdate=(sid,data)=>updates.push([sid,data]);
+
     for(const order of orders){
       const sid=String(order.id);
       let rec=sbMap[sid];
       const isVoided    = order.financial_status==='voided';
-      const isCancelled = order.cancel_reason!=null || order.cancelled_at!=null || order.status==='cancelled';
+      const isCancelled = order.cancel_reason!=null || order.cancelled_at!=null;
       const isPaidOnline= order.financial_status==='paid';
-      // Archived paid: paid + closed status (archived). Fulfilled not required — some may have shipped without fulfillment_status set.
-      const isArchivedPaid = isPaidOnline && order.status==='closed' && !isVoided;
 
       if(!rec){
         // Voided/cancelled wins first, then POS/paid wins over everything else
         let initialStage='awaiting_deposit';
         if(isVoided || isCancelled)              initialStage='cancelled_voided';
         else if(isPaidOnline)                    initialStage='collected';   // POS/paid → always collected
-        else if(isArchivedPaid)                  initialStage='collected';
         else if(hasShippedByAccurateTag(order))  initialStage='in_delivery';
         else if(order.fulfillment_status==='fulfilled') initialStage='in_delivery';
         else if(hasArabicConfirmation(order.note)) initialStage='confirmed';
 
-        const newRec={
+        rec={
           shopify_order_id:sid,
-          order_number:`#${order.order_number||order.name}`,
+          order_number:order.name||`#${order.order_number}`,
           customer_name:(()=>{ const b=order.billing_address,c=order.customer; if(b)return `${b.first_name||''} ${b.last_name||''}`.trim(); if(c)return `${c.first_name||''} ${c.last_name||''}`.trim(); return 'Unknown'; })(),
           total_price:parseFloat(order.total_price||0),
           created_at_shopify:order.created_at,
@@ -1302,79 +1289,101 @@ async function loadAll(){
           edit_flagged:false,
           payment_source:isPaidOnline?'paid_online':'cod'
         };
-        try{ const ins=await insertRecord(newRec); rec=(Array.isArray(ins)&&ins[0])||newRec; }catch(e){ rec=newRec; }
+        newRecs.push(rec);
       } else {
         // ── Voided / cancelled on Shopify always overrides any stage except already-collected ──
         // (If we manually collected it on the dashboard, leave it as collected)
         if((isVoided || isCancelled) && rec.stage!=='collected'){
           if(rec.stage!=='cancelled_voided'){
-            await updateRecord(sid,{stage:'cancelled_voided'});
+            queueUpdate(sid,{stage:'cancelled_voided'});
             rec={...rec,stage:'cancelled_voided'};
           }
         } else {
-          // ── POS / Paid Online: ALWAYS move to collected, regardless of current stage ──
-          // This catches orders that were manually moved to in_delivery/confirmed before the POS fix existed
+          // ── Paid on Shopify: move to collected, regardless of current stage ──
           if(isPaidOnline && rec.stage !== 'collected' && rec.stage !== 'cancelled_voided'){
-            await updateRecord(sid,{stage:'collected',payment_source:'paid_online',deposit_confirmed_at:new Date().toISOString()});
-            rec={...rec,stage:'collected',payment_source:'paid_online'};
+            const data={stage:'collected',collected_at:new Date().toISOString()};
+            // Only orders that were never COD-tracked count as paid online.
+            if(['awaiting_deposit','confirmed'].includes(rec.stage)) data.payment_source='paid_online';
+            queueUpdate(sid,data);
+            rec={...rec,...data};
           }
           // Arabic shipping confirmation note → confirm (COD only)
-          if(rec.stage==='awaiting_deposit' && !isPaidOnline && hasArabicConfirmation(order && order.note)){
-            await updateRecord(sid,{stage:'confirmed',deposit_confirmed_at:new Date().toISOString(),deposit_confirmed_by:'Asmaa (auto)'});
+          if(rec.stage==='awaiting_deposit' && !isPaidOnline && hasArabicConfirmation(order.note)){
+            queueUpdate(sid,{stage:'confirmed',deposit_confirmed_at:new Date().toISOString(),deposit_confirmed_by:'Asmaa (auto)'});
             rec={...rec,stage:'confirmed'};
           }
           // shipped-by-accurate tag → move to in_delivery (only from pre-delivery stages, COD only)
           if(!isPaidOnline && hasShippedByAccurateTag(order) && ['awaiting_deposit','confirmed'].includes(rec.stage)){
-            await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
+            queueUpdate(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
             rec={...rec,stage:'in_delivery'};
           }
-          // Already-paid+archived orders with wrong stage (belt-and-suspenders)
-          if(isArchivedPaid && rec.stage!=='collected' && rec.stage!=='cancelled_voided'){
-            await updateRecord(sid,{stage:'collected'});
-            rec={...rec,stage:'collected'};
+          // Keep the stored total in step with Shopify (e.g. order edited in Shopify Admin)
+          const shopTotal=parseFloat(order.total_price||0);
+          if(rec.stage!=='cancelled_voided' && Math.abs(shopTotal-Number(rec.total_price||0))>0.009){
+            queueUpdate(sid,{total_price:shopTotal});
+            rec={...rec,total_price:shopTotal};
           }
         }
       }
 
-      // Never skip cancelled_voided — they belong in the Cancelled tab
-      // Only skip orphan internal 'cancelled' records that have no order data (shouldn't normally occur)
-      if(rec.stage==='cancelled' && !isVoided && !isCancelled) continue;
-
       // Auto-advance fulfilled → in_delivery (only for non-voided open COD orders — never for paid online)
-      if(!isVoided && !isCancelled && !isPaidOnline && order.fulfillment_status==='fulfilled' && rec.stage==='confirmed'){
-        await updateRecord(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
+      if(!isVoided && !isCancelled && !isPaidOnline && order.fulfillment_status==='fulfilled' && rec.stage==='confirmed' && sbMap[sid]){
+        queueUpdate(sid,{stage:'in_delivery',shipped_at:new Date().toISOString()});
         rec={...rec,stage:'in_delivery'};
       }
 
       merged.push({order,rec});
     }
 
-    // Keep returning/on_hold/collected records even if Shopify closed them
+    // Write back: new records in one request, stage syncs in small parallel batches.
+    if(currentRole==='operator'){
+      if(newRecs.length){
+        try{ await apiCall({action:'db',op:'insert',data:newRecs},'Database'); }
+        catch(e){ console.error('[load] insert failed',e); showToast('Could not save new orders to the pipeline: '+e.message,'warn'); }
+      }
+      let failed=0;
+      for(let i=0;i<updates.length;i+=8){
+        const results=await Promise.allSettled(updates.slice(i,i+8).map(([sid,data])=>updateRecord(sid,data)));
+        results.forEach(r=>{ if(r.status==='rejected'){ failed++; console.error('[load] sync failed',r.reason); } });
+      }
+      if(failed) showToast(`${failed} stage update${failed>1?'s':''} could not be saved — they will retry on the next refresh`,'warn');
+    }
+
+    // Keep work-in-progress records even if they fall outside the fetched orders;
+    // finished ones (collected / cancelled) only within the chosen date range.
     if(Array.isArray(sbRecs)){
       const shopifyIds=new Set(orders.map(o=>String(o.id)));
+      const fromV=document.getElementById('date-from').value, toV=document.getElementById('date-to').value;
+      const fromT=fromV?new Date(fromV+'T00:00:00').getTime():-Infinity;
+      const toT=toV?new Date(toV+'T23:59:59.999').getTime():Infinity;
       sbRecs.forEach(rec=>{
-        if(!shopifyIds.has(rec.shopify_order_id)&&['in_delivery','collected','returning','on_hold','cancelled_voided'].includes(rec.stage))
-          merged.push({order:null,rec});
+        if(shopifyIds.has(rec.shopify_order_id)) return;
+        if(['in_delivery','returning','on_hold'].includes(rec.stage)) merged.push({order:null,rec});
+        else if(['collected','cancelled_voided'].includes(rec.stage)){
+          const t=new Date(rec.created_at_shopify||0).getTime();
+          if(t>=fromT&&t<=toT) merged.push({order:null,rec});
+        }
       });
     }
 
     allMerged=merged;
+    hasLoaded=true;
     updateStats(merged);
     applyControls();
     setTimeout(updateStickyTops,50);
   } catch(e){
     console.error(e);
-    showToast('Failed to load: '+e.message,'error');
-    renderError();
+    if(currentRole){ showToast('Failed to load: '+e.message,'error'); renderError(); }
+  } finally {
+    btn.classList.remove('spinning');
   }
-  btn.classList.remove('spinning');
 }
 
 // ════════════════════════════════════════
 // SORT / FILTER / SEARCH
 // ════════════════════════════════════════
 function applyControls(){
-  if(!allMerged.length) return;
+  if(!hasLoaded) return;
   const sort  =document.getElementById('sort-select').value;
   const filter=document.getElementById('filter-select').value;
   const search=(document.getElementById('search-input').value||'').toLowerCase().trim();
@@ -1459,13 +1468,13 @@ const WA_SVG=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width=
 
 function renderRow(stage,order,rec,isOp){
   const sid   = rec.shopify_order_id;
-  const num   = rec.order_number||(order?`#${order.name}`:'—');
+  const num   = rec.order_number||(order?order.name:'—');
   const name  = rec.customer_name||'Unknown';
   const price = parseFloat(rec.total_price||(order?order.total_price:0)||0);
   const created= new Date(rec.created_at_shopify||(order?order.created_at:Date.now()));
   const daysOld= Math.floor((Date.now()-created)/86400000);
   const daysLeft=7-daysOld;
-  const isPaidOnline=rec.payment_source==='paid_online'||(order&&order.financial_status==='paid');
+  const isPaidOnline=rec.payment_source==='paid_online';
   const itemCount = order ? (order.line_items||[]).length : 0;
   const itemsPreview = order ? h((order.line_items||[]).slice(0,1).map(i=>`${i.name} ×${i.quantity}`).join('') + (itemCount>1?` +${itemCount-1} more`:'')) : '';
   const itemsDataAttr = order ? encodeURIComponent(JSON.stringify((order.line_items||[]).map(i=>({name:i.name,qty:i.quantity,price:i.price})))) : '';
@@ -1577,6 +1586,7 @@ function renderRow(stage,order,rec,isOp){
         <button class="btn-action btn-edit" onclick="openEditor('${esc(sid)}')">✏ Edit Order</button>
         <a class="btn-action btn-shopify" href="${shopifyLink}" target="_blank">🔗 Shopify Admin</a>
         <button class="btn-action btn-ship" onclick="resolveHoldAndShip('${esc(sid)}','${esc(num)}','${esc(name)}')">✓ Resolved → Ship</button>
+        <button class="btn-action btn-orange" onclick="clearHold('${esc(sid)}','${esc(num)}')">↩ Back to Confirmed</button>
         <button class="btn-action btn-cancel" onclick="cancelOrder('${esc(sid)}','${esc(num)}','${esc(name)}','Cancelled — edit requested')">✕ Cancel</button>`;
     } else if(stage==='collected'){
       const collectedLabel=isPaidOnline?'💳 Paid Online — Auto-collected':'✓ COD Collected';
@@ -1590,6 +1600,8 @@ function renderRow(stage,order,rec,isOp){
 
   const rowClass=`order-row${isUrgent?' urgent':''}${isHold&&(stage==='confirmed'||stage==='on_hold')?' on-hold':''}${isPaidOnline&&stage==='confirmed'?' paid-confirmed':''}`;
   const phoneNorm=h(normalizeEgPhone(phone));
+  // Links need plain international digits (no "+", "00" or spaces).
+  const phoneDigits=normalizeEgPhone(phone).replace(/\D/g,'').replace(/^00/,'');
 
   return `<div class="${rowClass}" id="card-${h(sid)}">
     <div class="row-cell cell-id">
@@ -1611,15 +1623,15 @@ function renderRow(stage,order,rec,isOp){
     </div>
     <div class="row-cell cell-info row-cell-border" data-price="EGP ${price.toLocaleString('en-EG',{minimumFractionDigits:2})}">
       ${phone?`<div class="phone-row" style="margin:0">
-        <a class="phone-call" href="tel:+${phoneNorm.replace(/^00/,'')}">📞 ${phoneNorm}</a>
-        <a class="phone-wa" href="https://wa.me/${phoneNorm.replace(/^00/,'')}" target="_blank" rel="noopener">${WA_SVG}</a>
+        <a class="phone-call" href="tel:+${phoneDigits}">📞 ${phoneNorm}</a>
+        <a class="phone-wa" href="https://wa.me/${phoneDigits}" target="_blank" rel="noopener">${WA_SVG}</a>
       </div>`:'<span style="font-size:.62rem;color:var(--subtle);font-family:var(--mono)">—</span>'}
     </div>
     <div class="row-cell cell-price-phone-mobile">
       <div class="mobile-price">EGP ${price.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
       ${phone?`<div class="phone-row" style="margin:0">
-        <a class="phone-call" href="tel:+${phoneNorm.replace(/^00/,'')}">📞 ${phoneNorm}</a>
-        <a class="phone-wa" href="https://wa.me/${phoneNorm.replace(/^00/,'')}" target="_blank" rel="noopener">${WA_SVG}</a>
+        <a class="phone-call" href="tel:+${phoneDigits}">📞 ${phoneNorm}</a>
+        <a class="phone-wa" href="https://wa.me/${phoneDigits}" target="_blank" rel="noopener">${WA_SVG}</a>
       </div>`:''}
     </div>
     <div class="row-cell cell-actions row-cell-border">
@@ -1640,7 +1652,7 @@ function updateStats(merged){
     if(v[s]!==undefined) v[s]+=price;
     if(s==='awaiting_deposit'&&!(rec.payment_source==='paid_online')){
       const d=Math.floor((Date.now()-new Date(rec.created_at_shopify||(order?order.created_at:Date.now())))/86400000);
-      if(d>=6) exp++;
+      if(7-d<=2) exp++;   // same rule as the "Expiring soon (≤2 days)" filter
     }
   });
   const ALL_STAGES=['awaiting_deposit','confirmed','in_delivery','collected','returning','on_hold','cancelled_voided'];
@@ -1719,7 +1731,9 @@ function openEditor(sid){
     isNew:        false
   }));
 
-  editorNote=(order?order.note:'')||'';
+  editorNote=editorOrigNote=(order?order.note:'')||'';
+  _pendingSaveData=null;
+  resetEditorFooter();
   editorDiscount=parseFloat(order&&order.total_discounts||0);
   editorShipping=parseFloat(order&&order.shipping_lines&&order.shipping_lines[0]&&order.shipping_lines[0].price||0);
 
@@ -1737,40 +1751,70 @@ function openEditor(sid){
   document.body.style.overflow='hidden';
 }
 
+// Puts the footer back to "Discard / Save" (the review screen swaps both buttons).
+function resetEditorFooter(){
+  const b=document.getElementById('btn-save-order');
+  b.disabled=false;
+  b.innerHTML='<span>💾</span> Save & Sync to Shopify';
+  b.onclick=saveOrderEdits;
+  b.style.cssText='';
+  const d=document.querySelector('.btn-discard');
+  d.textContent='Discard';
+  d.onclick=closeEditor;
+}
+
 function closeEditor(){
   document.getElementById('editor-overlay').classList.remove('open');
   document.body.style.overflow='';
-  editorOrderId=null; editorOrderObj=null; editorItems=[]; editorNote=''; editorDiscount=0; editorShipping=0;
+  editorOrderId=null; editorOrderObj=null; editorItems=[]; editorNote=''; editorOrigNote=''; editorDiscount=0; editorShipping=0;
+  _pendingSaveData=null;   // never let a pending review carry over to another order
+  resetEditorFooter();
   // clear search
   const sr=document.getElementById('prod-search-results');
   if(sr) sr.classList.remove('open');
 }
 
-function renderEditorBody(){
+function editorTotals(){
   const subtotal=editorItems.reduce((s,i)=>i.removed?s:s+(i.price*i.quantity),0);
   const disc=editorDiscount||0;
   const ship=editorShipping||0;
   const grandTotal=Math.max(0,subtotal-disc)+ship;
-  const hasChanges=editorItems.some(i=>i.removed||i.isNew||
+  const origDisc=parseFloat(editorOrderObj&&editorOrderObj.total_discounts||0);
+  const origShip=parseFloat(editorOrderObj&&editorOrderObj.shipping_lines&&editorOrderObj.shipping_lines[0]&&editorOrderObj.shipping_lines[0].price||0);
+  const hasChanges=disc!==origDisc||ship!==origShip||editorItems.some(i=>i.removed||i.isNew||
     (editorOrderObj&&(editorOrderObj.line_items||[]).find(li=>li.id===i.line_item_id&&li.quantity!==i.quantity)));
+  return {subtotal,disc,ship,grandTotal,hasChanges};
+}
+// Updates only the total figures, so typing in Discount / Shipping keeps focus.
+function updateEditorTotals(){
+  const {grandTotal,hasChanges}=editorTotals();
+  const fmt='EGP '+grandTotal.toLocaleString('en-EG',{minimumFractionDigits:2});
+  const a=document.getElementById('ed-summary-total'), b=document.getElementById('ed-collect-total'), c=document.getElementById('ed-changes');
+  if(a) a.textContent=fmt;
+  if(b) b.textContent=fmt;
+  if(c) c.style.display=hasChanges?'':'none';
+}
+
+function renderEditorBody(){
+  const {subtotal,disc,ship,grandTotal,hasChanges}=editorTotals();
 
   document.getElementById('editor-body').innerHTML=`
     <div style="background:#FEF6E6;border:1px solid #F5D68A;border-radius:8px;padding:.6rem .85rem;margin-bottom:.85rem;font-size:.7rem;color:#7A5200;line-height:1.5">
-      <strong>ℹ Order Edit API</strong> — item changes, quantities, and discount will be applied via Shopify's GraphQL Order Editing API.
-      If the API is unavailable, changes are logged as a note and you'll be directed to Shopify Admin.
+      <strong>ℹ How saving works</strong> — make your changes here, then the next screen lists them for you to apply in Shopify Admin.
+      The dashboard total and order note are updated once you confirm.
     </div>
     <div class="editor-summary">
       <div>
         <div class="editor-summary-label">Order Total</div>
-        ${hasChanges?`<div class="editor-summary-changes">⚠ Unsaved changes</div>`:''}
+        <div class="editor-summary-changes" id="ed-changes" style="${hasChanges?'':'display:none'}">⚠ Unsaved changes</div>
       </div>
-      <div class="editor-summary-val">EGP ${grandTotal.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
+      <div class="editor-summary-val" id="ed-summary-total">EGP ${grandTotal.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
     </div>
 
     <div class="editor-section">
       <div class="editor-section-title">Items</div>
       <div id="editor-items-list">
-        ${editorItems.length===0?'<div style="font-size:.75rem;color:var(--text-muted);text-align:center;padding:1rem;">No items</div>':
+        ${editorItems.length===0?'<div style="font-size:.75rem;color:var(--muted);text-align:center;padding:1rem;">No items</div>':
           editorItems.map((item,idx)=>`
             <div class="editor-item${item.removed?' item-removed':''}" id="eitem-${idx}">
               <div class="editor-item-info">
@@ -1824,7 +1868,7 @@ function renderEditorBody(){
           </div>
           <div class="fin-input-wrap">
             <span class="fin-currency">EGP</span>
-            <input class="fin-input" id="fin-discount" type="number" min="0" step="1" value="${disc}" oninput="editorDiscount=parseFloat(this.value)||0;renderEditorBody()">
+            <input class="fin-input" id="fin-discount" type="number" min="0" step="1" value="${disc}" oninput="editorDiscount=parseFloat(this.value)||0;updateEditorTotals()">
           </div>
         </div>
 
@@ -1838,7 +1882,7 @@ function renderEditorBody(){
           </div>
           <div class="fin-input-wrap">
             <span class="fin-currency">EGP</span>
-            <input class="fin-input" id="fin-shipping" type="number" min="0" step="1" value="${ship}" oninput="editorShipping=parseFloat(this.value)||0;renderEditorBody()">
+            <input class="fin-input" id="fin-shipping" type="number" min="0" step="1" value="${ship}" oninput="editorShipping=parseFloat(this.value)||0;updateEditorTotals()">
           </div>
         </div>
 
@@ -1847,7 +1891,7 @@ function renderEditorBody(){
             <span class="fin-icon">💰</span>
             <div><div class="fin-title" style="font-weight:600">Total to Collect</div></div>
           </div>
-          <div class="fin-amount-total">EGP ${grandTotal.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
+          <div class="fin-amount-total" id="ed-collect-total">EGP ${grandTotal.toLocaleString('en-EG',{minimumFractionDigits:2})}</div>
         </div>
 
       </div>
@@ -1855,7 +1899,7 @@ function renderEditorBody(){
 
     <div class="editor-section">
       <div class="editor-section-title">Order Note</div>
-      <textarea class="editor-note-input" id="editor-note-field" rows="3" placeholder="Add or edit the order note sent to Shopify…">${h(editorNote)}</textarea>
+      <textarea class="editor-note-input" id="editor-note-field" rows="3" oninput="editorNote=this.value" placeholder="Add or edit the order note sent to Shopify…">${h(editorNote)}</textarea>
     </div>
   `;
 }
@@ -1947,8 +1991,8 @@ async function saveOrderEdits(){ reviewOrderEdits(); }
 
 function reviewOrderEdits(){
   const btn=document.getElementById('btn-save-order');
-  const noteField=document.getElementById('editor-note-field');
-  const note=noteField?noteField.value.trim():editorNote;
+  const note=(editorNote||'').trim();
+  const origNote=(editorOrigNote||'').trim();
   const disc=editorDiscount||0;
   const ship=editorShipping||0;
   const subtotal=editorItems.reduce((s,i)=>i.removed?s:s+(i.price*i.quantity),0);
@@ -1962,10 +2006,10 @@ function reviewOrderEdits(){
   const origShip=parseFloat(editorOrderObj&&editorOrderObj.shipping_lines&&
     editorOrderObj.shipping_lines[0]&&editorOrderObj.shipping_lines[0].price||0);
 
-  const hasChanges=newItems.length||removedItems.length||qtyChanges.length||disc!==origDisc||ship!==origShip||note!==editorNote;
+  const hasChanges=newItems.length||removedItems.length||qtyChanges.length||disc!==origDisc||ship!==origShip||note!==origNote;
   if(!hasChanges){ showToast('No changes to save','info'); return; }
 
-  _pendingSaveData={note,disc,ship,grandTotal,newItems,removedItems,qtyChanges,origDisc,origShip};
+  _pendingSaveData={orderId:editorOrderId,note,origNote,disc,ship,grandTotal,newItems,removedItems,qtyChanges,origDisc,origShip};
 
   // Build change rows
   const esc2=h;
@@ -1975,7 +2019,7 @@ function reviewOrderEdits(){
   qtyChanges.forEach(i=>{ rows+=`<div class="chg-row chg-qty"><span class="chg-icon">⇄</span><span>Change qty <strong>${esc2(i.title)}</strong> → ×${i.quantity}</span></div>`; });
   if(disc!==origDisc) rows+=`<div class="chg-row chg-fin"><span class="chg-icon">🏷</span><span>Discount: EGP ${origDisc} → <strong>EGP ${disc}</strong></span></div>`;
   if(ship!==origShip) rows+=`<div class="chg-row chg-fin"><span class="chg-icon">🚚</span><span>Shipping: EGP ${origShip} → <strong>EGP ${ship}</strong></span></div>`;
-  if(note&&note!==editorNote) rows+=`<div class="chg-row chg-note"><span class="chg-icon">📝</span><span>Note: <em>${esc2(note.slice(0,80))}${note.length>80?'…':''}</em></span></div>`;
+  if(note!==origNote) rows+=`<div class="chg-row chg-note"><span class="chg-icon">📝</span><span>Note: <em>${note?esc2(note.slice(0,80))+(note.length>80?'…':''):'(cleared)'}</em></span></div>`;
 
   document.getElementById('editor-body').innerHTML=`
     <style>
@@ -2027,23 +2071,18 @@ function reviewOrderEdits(){
   discardBtn.onclick=()=>{
     _pendingSaveData=null;
     renderEditorBody();
-    const b=document.getElementById('btn-save-order');
-    b.innerHTML='<span>💾</span> Save & Sync to Shopify';
-    b.onclick=saveOrderEdits;
-    b.style.cssText='';
-    const d=document.querySelector('.btn-discard');
-    d.textContent='Discard';
-    d.onclick=closeEditor;
+    resetEditorFooter();
   };
 }
 
 async function confirmSaveEdits(){
   if(!_pendingSaveData) return;
+  const {orderId,note,origNote,disc,ship,grandTotal,newItems,removedItems,qtyChanges,origDisc,origShip}=_pendingSaveData;
+  // Belt and braces: the pending changes must belong to the order that is open.
+  if(String(orderId)!==String(editorOrderId)){ _pendingSaveData=null; resetEditorFooter(); showToast('Those changes were for a different order — please review again','warn'); return; }
   const btn=document.getElementById('btn-save-order');
   btn.disabled=true;
   btn.textContent='Saving…';
-
-  const {note,disc,ship,grandTotal,newItems,removedItems,qtyChanges,origDisc,origShip}=_pendingSaveData;
 
   try{
     let summary='';
@@ -2052,10 +2091,15 @@ async function confirmSaveEdits(){
     if(qtyChanges.length)   summary+=`Qty: ${qtyChanges.map(i=>`${i.title}→×${i.quantity}`).join(', ')}. `;
     if(disc!==origDisc)     summary+=`Discount EGP ${disc}. `;
     if(ship!==origShip)     summary+=`Shipping EGP ${ship}. `;
+    const logLine=`✅ Manually edited in Shopify Admin on ${fmtDate(new Date())}. ${summary}`.trim();
 
-    const fullNote=`✅ Manually edited in Shopify Admin on ${fmtDate(new Date())}. ${summary}\n\n${note||''}`.trim();
-    await addOrderNote(editorOrderId, fullNote);
-    await updateRecord(editorOrderId,{total_price:grandTotal,notes:note||'',edit_flagged:false,edit_note:'',updated_at:new Date().toISOString()});
+    if(note!==origNote){
+      // The operator edited the note itself: save their text, plus the log line.
+      await shopifyFetch(`orders/${orderId}.json`,'PUT',{order:{id:Number(orderId),note:note?`${note}\n${logLine}`:logLine}});
+    } else {
+      await addOrderNote(orderId, logLine);
+    }
+    await updateRecord(orderId,{total_price:grandTotal,notes:note||'',edit_flagged:false,edit_note:''});
 
     _pendingSaveData=null;
     showToast(`Dashboard updated ✓ — new total EGP ${grandTotal.toLocaleString('en-EG',{minimumFractionDigits:2})}`,'success');
@@ -2143,9 +2187,12 @@ function markCollected(sid,num,name,price){
     'confirm',null,async()=>{
       try{
         await updateRecord(sid,{stage:'collected',collected_at:new Date().toISOString()});
-        try{await markOrderPaid(sid);}catch(e){console.warn('Transaction:',e.message);}
-        await addOrderNote(sid,`💰 COD collected on ${fmtDate(new Date())}. Archived.`);
-        showToast(`${num} — Collected ✓`,'success'); loadAll();
+        let paidOk=true;
+        try{ await markOrderPaid(sid); }
+        catch(e){ paidOk=false; console.warn('[collect] mark paid failed:',e.message); showToast(`${num} — collected on the dashboard, but Shopify was not marked paid: ${e.message}`,'warn'); }
+        await addOrderNote(sid,`💰 COD collected on ${fmtDate(new Date())}.${paidOk?' Marked paid and archived.':''}`);
+        if(paidOk) showToast(`${num} — Collected, marked paid & archived ✓`,'success');
+        loadAll();
       }catch(e){showToast('Error: '+e.message,'error');}
     });
 }
@@ -2195,12 +2242,12 @@ function rejectOrder(sid,num,name){
 // ════════════════════════════════════════
 function confirmReturned(sid,num,name){
   showModal('Confirm Received at Warehouse',
-    `Confirm <strong>${h(name)}</strong>'s order (${h(num)}) physically received back at warehouse?<br><strong>This will cancel the order on Shopify and restock inventory.</strong>`,
+    `Confirm <strong>${h(name)}</strong>'s order (${h(num)}) physically received back at warehouse?<br><strong>This restocks the items on Shopify and closes the order.</strong>`,
     'danger',null,async()=>{
       try{
         await cancelShopifyOrder(sid);
         await updateRecord(sid,{stage:'cancelled_voided',return_confirmed_at:new Date().toISOString(),cancelled_at:new Date().toISOString()});
-        showToast(`${num} — Received, cancelled & restocked ✓`,'success'); loadAll();
+        showToast(`${num} — Received, restocked & closed ✓`,'success'); loadAll();
       }catch(e){showToast('Error: '+e.message,'error');}
     });
 }
@@ -2337,8 +2384,14 @@ function normalizeEgPhone(raw){
   return '0020' + p;
 }
 
-// Auto-refresh every 3 min
-setInterval(()=>{ if(currentRole) loadAll(); },180000);
+// Auto-refresh every 3 min — skipped while the operator is in the middle of something.
+setInterval(()=>{
+  if(!currentRole) return;
+  const busy=document.getElementById('editor-overlay').classList.contains('open')
+    ||document.getElementById('modal-overlay').classList.contains('open')
+    ||document.querySelector('.note-area.open');
+  if(!busy) loadAll();
+},180000);
 </script>
 </body>
 </html>
