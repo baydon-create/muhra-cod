@@ -6,7 +6,11 @@
 // operations the dashboard actually uses are allowed. Viewers are read-only.
 //
 // Required secrets:
-//   SHOPIFY_ADMIN_TOKEN   Shopify Admin API access token
+//   SHOPIFY_CLIENT_ID +   Dev Dashboard app credentials. cod-api requests its own
+//   SHOPIFY_CLIENT_SECRET Admin API token (client credentials grant, valid 24h)
+//                         and renews it automatically.
+//   SHOPIFY_ADMIN_TOKEN   Optional fallback static token, used only if the client
+//                         credentials are not set or the token request fails.
 //   COD_OPERATOR_PIN      PIN for the operator role (full access)
 //   COD_VIEWER_PIN        PIN for the viewer role (read-only)
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
@@ -14,7 +18,9 @@
 const SHOPIFY_STORE = "muhrastore-2.myshopify.com";
 const SHOPIFY_API_VERSION = "2024-01";
 
-const SHOPIFY_TOKEN = Deno.env.get("SHOPIFY_ADMIN_TOKEN") ?? "";
+const STATIC_TOKEN = (Deno.env.get("SHOPIFY_ADMIN_TOKEN") ?? "").trim();
+const CLIENT_ID = (Deno.env.get("SHOPIFY_CLIENT_ID") ?? "").trim();
+const CLIENT_SECRET = (Deno.env.get("SHOPIFY_CLIENT_SECRET") ?? "").trim();
 const OPERATOR_PIN = Deno.env.get("COD_OPERATOR_PIN") ?? "";
 const VIEWER_PIN = Deno.env.get("COD_VIEWER_PIN") ?? "";
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -28,6 +34,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cod-pin",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Expose-Headers": "X-Shopify-Link",
 };
 
 const PIPELINE_COLUMNS = new Set([
@@ -96,6 +103,65 @@ async function recordFailure(ip: string) {
   await db("cod_auth_failures", { method: "POST", body: JSON.stringify({ ip }) });
 }
 
+// ── Shopify access token ─────────────────────────────────────────────────────
+// Client-credentials tokens expire after 24h; cache per instance and renew
+// 10 minutes before expiry.
+let cachedToken = "";
+let cachedTokenExpiresAt = 0;
+let tokenRetryAfter = 0;   // after a failed token request, wait before trying again
+
+async function fetchClientCredentialsToken(): Promise<string> {
+  const res = await fetch(`https://${SHOPIFY_STORE}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+    }),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    const reason = text.match(/<title>([^<]*)<\/title>/)?.[1] ?? text.slice(0, 200);
+    throw new Error(`Shopify token request failed (${res.status}): ${reason} ` +
+      `[client_id ${CLIENT_ID.slice(0, 6)}… length ${CLIENT_ID.length}, secret length ${CLIENT_SECRET.length}]`);
+  }
+  const data = JSON.parse(text);
+  if (!data.access_token) throw new Error("Shopify token response had no access_token");
+  cachedToken = data.access_token;
+  cachedTokenExpiresAt = Date.now() + (Number(data.expires_in) || 86_399) * 1000 - 10 * 60_000;
+  return cachedToken;
+}
+
+async function getShopifyToken(forceRefresh = false): Promise<string> {
+  if (CLIENT_ID && CLIENT_SECRET) {
+    if (!forceRefresh && cachedToken && Date.now() < cachedTokenExpiresAt) return cachedToken;
+    if (Date.now() >= tokenRetryAfter || !STATIC_TOKEN) {
+      try {
+        return await fetchClientCredentialsToken();
+      } catch (e) {
+        console.error("[cod-api]", (e as Error).message);
+        tokenRetryAfter = Date.now() + 5 * 60_000;
+        if (!STATIC_TOKEN) throw e;
+      }
+    }
+  }
+  return STATIC_TOKEN;
+}
+
+async function shopifyRequest(path: string, method: string, body: unknown) {
+  const send = (token: string) =>
+    fetch(`https://${SHOPIFY_STORE}/admin/api/${SHOPIFY_API_VERSION}/${path}`, {
+      method,
+      headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : null,
+    });
+  let res = await send(await getShopifyToken());
+  // A cached token may have been revoked; get a fresh one and retry once.
+  if (res.status === 401 && CLIENT_ID && CLIENT_SECRET) res = await send(await getShopifyToken(true));
+  return res;
+}
+
 // ── Shopify allow-list ───────────────────────────────────────────────────────
 // Returns the (possibly sanitised) body to send, or null if the call is not allowed.
 function checkShopifyCall(role: Role, path: string, method: string, body: any): { ok: true; body: any } | { ok: false } {
@@ -109,7 +175,7 @@ function checkShopifyCall(role: Role, path: string, method: string, body: any): 
   if (role !== "operator") return { ok: false };
   if (path.includes("?")) return { ok: false };
 
-  const m = rawPath.match(/^orders\/(\d+)(?:\/(transactions|cancel|refunds|refunds\/calculate))?\.json$/);
+  const m = rawPath.match(/^orders\/(\d+)(?:\/(transactions|cancel|close|refunds|refunds\/calculate))?\.json$/);
   if (!m) return { ok: false };
   const [, orderId, sub] = m;
 
@@ -124,7 +190,7 @@ function checkShopifyCall(role: Role, path: string, method: string, body: any): 
     const refund = body?.refund ?? {};
     return { ok: true, body: { refund: { ...refund, transactions: [] } } };
   }
-  if (method === "POST" && (sub === "transactions" || sub === "cancel" || sub === "refunds/calculate")) {
+  if (method === "POST" && (sub === "transactions" || sub === "cancel" || sub === "close" || sub === "refunds/calculate")) {
     return { ok: true, body };
   }
   return { ok: false };
@@ -136,15 +202,45 @@ async function handleShopify(role: Role, payload: any) {
   const check = checkShopifyCall(role, path, method, payload.body);
   if (!check.ok) return json({ error: "Operation not allowed" }, 403);
 
-  const res = await fetch(`https://${SHOPIFY_STORE}/admin/api/${SHOPIFY_API_VERSION}/${path}`, {
-    method,
-    headers: { "X-Shopify-Access-Token": SHOPIFY_TOKEN, "Content-Type": "application/json" },
-    body: check.body ? JSON.stringify(check.body) : null,
-  });
+  let res: Response;
+  try {
+    res = await shopifyRequest(path, method, check.body);
+  } catch (e) {
+    return json({ error: `Could not get a Shopify access token: ${(e as Error).message}` }, 502);
+  }
+  // Don't pass Shopify's 401 through: the dashboard reads 401 as "wrong PIN".
+  if (res.status === 401) {
+    return json({ error: "Shopify rejected the access token — check the SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET secrets" }, 502);
+  }
+  // Shopify paginates with a Link header (page_info cursors); pass it on.
+  const link = res.headers.get("link");
   return new Response(await res.text(), {
     status: res.status,
-    headers: { ...CORS, "Content-Type": "application/json" },
+    headers: { ...CORS, "Content-Type": "application/json", ...(link ? { "X-Shopify-Link": link } : {}) },
   });
+}
+
+// Mark a pending (COD) order as paid with the GraphQL orderMarkAsPaid mutation.
+async function handleMarkPaid(role: Role, payload: any) {
+  if (role !== "operator") return json({ error: "View-only access" }, 403);
+  const orderId = String(payload.order_id ?? "");
+  if (!/^\d+$/.test(orderId)) return json({ error: "Bad order id" }, 400);
+  let res: Response;
+  try {
+    res = await shopifyRequest(`graphql.json`, "POST", {
+      query: `mutation markPaid($input: OrderMarkAsPaidInput!) {
+        orderMarkAsPaid(input: $input) {
+          order { id displayFinancialStatus }
+          userErrors { field message }
+        }
+      }`,
+      variables: { input: { id: `gid://shopify/Order/${orderId}` } },
+    });
+  } catch (e) {
+    return json({ error: `Could not get a Shopify access token: ${(e as Error).message}` }, 502);
+  }
+  if (res.status === 401) return json({ error: "Shopify rejected the access token" }, 502);
+  return new Response(await res.text(), { status: res.status, headers: { ...CORS, "Content-Type": "application/json" } });
 }
 
 // ── cod_pipeline ─────────────────────────────────────────────────────────────
@@ -178,8 +274,13 @@ async function handleDb(role: Role, payload: any) {
   if (role !== "operator") return json({ error: "View-only access" }, 403);
 
   if (op === "insert") {
-    const data = pickColumns(payload.data);
-    if (!/^\d+$/.test(String(data.shopify_order_id ?? ""))) return json({ error: "Bad order id" }, 400);
+    // Accepts one record or an array of records.
+    const many = Array.isArray(payload.data);
+    const rows = (many ? payload.data : [payload.data]).map(pickColumns);
+    if (!rows.length || rows.some((r: any) => !/^\d+$/.test(String(r.shopify_order_id ?? "")))) {
+      return json({ error: "Bad order id" }, 400);
+    }
+    const data = many ? rows : rows[0];
     const res = await db("cod_pipeline?on_conflict=shopify_order_id", {
       method: "POST",
       headers: { Prefer: "return=representation,resolution=ignore-duplicates" },
@@ -207,7 +308,7 @@ async function handleDb(role: Role, payload: any) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  if (!SHOPIFY_TOKEN || !OPERATOR_PIN || !VIEWER_PIN || !SERVICE_KEY) {
+  if (!(STATIC_TOKEN || (CLIENT_ID && CLIENT_SECRET)) || !OPERATOR_PIN || !VIEWER_PIN || !SERVICE_KEY) {
     return json({ error: "Server not configured" }, 500);
   }
 
@@ -228,6 +329,7 @@ Deno.serve(async (req) => {
       case "login":   return json({ role });
       case "shopify": return await handleShopify(role, payload);
       case "db":      return await handleDb(role, payload);
+      case "markPaid": return await handleMarkPaid(role, payload);
       default:        return json({ error: "Unknown action" }, 400);
     }
   } catch (e) {
