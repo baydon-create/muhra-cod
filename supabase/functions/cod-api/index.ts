@@ -18,9 +18,9 @@
 const SHOPIFY_STORE = "muhrastore-2.myshopify.com";
 const SHOPIFY_API_VERSION = "2024-01";
 
-const STATIC_TOKEN = Deno.env.get("SHOPIFY_ADMIN_TOKEN") ?? "";
-const CLIENT_ID = Deno.env.get("SHOPIFY_CLIENT_ID") ?? "";
-const CLIENT_SECRET = Deno.env.get("SHOPIFY_CLIENT_SECRET") ?? "";
+const STATIC_TOKEN = (Deno.env.get("SHOPIFY_ADMIN_TOKEN") ?? "").trim();
+const CLIENT_ID = (Deno.env.get("SHOPIFY_CLIENT_ID") ?? "").trim();
+const CLIENT_SECRET = (Deno.env.get("SHOPIFY_CLIENT_SECRET") ?? "").trim();
 const OPERATOR_PIN = Deno.env.get("COD_OPERATOR_PIN") ?? "";
 const VIEWER_PIN = Deno.env.get("COD_VIEWER_PIN") ?? "";
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -107,6 +107,7 @@ async function recordFailure(ip: string) {
 // 10 minutes before expiry.
 let cachedToken = "";
 let cachedTokenExpiresAt = 0;
+let tokenRetryAfter = 0;   // after a failed token request, wait before trying again
 
 async function fetchClientCredentialsToken(): Promise<string> {
   const res = await fetch(`https://${SHOPIFY_STORE}/admin/oauth/access_token`, {
@@ -119,7 +120,11 @@ async function fetchClientCredentialsToken(): Promise<string> {
     }),
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`Shopify token request failed (${res.status}): ${text.slice(0, 300)}`);
+  if (!res.ok) {
+    const reason = text.match(/<title>([^<]*)<\/title>/)?.[1] ?? text.slice(0, 200);
+    throw new Error(`Shopify token request failed (${res.status}): ${reason} ` +
+      `[client_id ${CLIENT_ID.slice(0, 6)}… length ${CLIENT_ID.length}, secret length ${CLIENT_SECRET.length}]`);
+  }
   const data = JSON.parse(text);
   if (!data.access_token) throw new Error("Shopify token response had no access_token");
   cachedToken = data.access_token;
@@ -130,11 +135,14 @@ async function fetchClientCredentialsToken(): Promise<string> {
 async function getShopifyToken(forceRefresh = false): Promise<string> {
   if (CLIENT_ID && CLIENT_SECRET) {
     if (!forceRefresh && cachedToken && Date.now() < cachedTokenExpiresAt) return cachedToken;
-    try {
-      return await fetchClientCredentialsToken();
-    } catch (e) {
-      console.error("[cod-api]", (e as Error).message);
-      if (!STATIC_TOKEN) throw e;
+    if (Date.now() >= tokenRetryAfter || !STATIC_TOKEN) {
+      try {
+        return await fetchClientCredentialsToken();
+      } catch (e) {
+        console.error("[cod-api]", (e as Error).message);
+        tokenRetryAfter = Date.now() + 5 * 60_000;
+        if (!STATIC_TOKEN) throw e;
+      }
     }
   }
   return STATIC_TOKEN;

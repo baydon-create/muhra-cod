@@ -6,10 +6,10 @@
 // Secrets: SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET, SHOPIFY_DOMAIN,
 //          SHOPIFY_ADMIN_TOKEN (optional fallback)
 // ============================================================
-const STATIC_TOKEN  = Deno.env.get("SHOPIFY_ADMIN_TOKEN") ?? "";
-const CLIENT_ID     = Deno.env.get("SHOPIFY_CLIENT_ID") ?? "";
-const CLIENT_SECRET = Deno.env.get("SHOPIFY_CLIENT_SECRET") ?? "";
-const DOMAIN = Deno.env.get("SHOPIFY_DOMAIN") ?? "muhrastore-2.myshopify.com";
+const STATIC_TOKEN  = (Deno.env.get("SHOPIFY_ADMIN_TOKEN") ?? "").trim();
+const CLIENT_ID     = (Deno.env.get("SHOPIFY_CLIENT_ID") ?? "").trim();
+const CLIENT_SECRET = (Deno.env.get("SHOPIFY_CLIENT_SECRET") ?? "").trim();
+const DOMAIN = (Deno.env.get("SHOPIFY_DOMAIN") ?? "").trim() || "muhrastore-2.myshopify.com";
 const GQL    = `https://${DOMAIN}/admin/api/2024-10/graphql.json`;
 
 const cors = () => ({
@@ -27,6 +27,7 @@ function json(o: unknown, status = 200) {
 // ---- Access token (client credentials, renewed 10 min before expiry) ----
 let cachedToken = "";
 let cachedTokenExpiresAt = 0;
+let tokenRetryAfter = 0;   // after a failed token request, wait before trying again
 
 async function fetchClientCredentialsToken(): Promise<string> {
   const r = await fetch(`https://${DOMAIN}/admin/oauth/access_token`, {
@@ -39,7 +40,11 @@ async function fetchClientCredentialsToken(): Promise<string> {
     }),
   });
   const t = await r.text();
-  if (!r.ok) throw new Error(`Shopify token request failed (${r.status}): ${t.slice(0, 300)}`);
+  if (!r.ok) {
+    const reason = t.match(/<title>([^<]*)<\/title>/)?.[1] ?? t.slice(0, 200);
+    throw new Error(`Shopify token request failed (${r.status}): ${reason} ` +
+      `[shop ${DOMAIN}, client_id ${CLIENT_ID.slice(0, 6)}… length ${CLIENT_ID.length}, secret length ${CLIENT_SECRET.length}]`);
+  }
   const d = JSON.parse(t);
   if (!d.access_token) throw new Error("Shopify token response had no access_token");
   cachedToken = d.access_token;
@@ -50,11 +55,14 @@ async function fetchClientCredentialsToken(): Promise<string> {
 async function getToken(forceRefresh = false): Promise<string> {
   if (CLIENT_ID && CLIENT_SECRET) {
     if (!forceRefresh && cachedToken && Date.now() < cachedTokenExpiresAt) return cachedToken;
-    try {
-      return await fetchClientCredentialsToken();
-    } catch (e) {
-      console.error("shopify-lookup token error:", String(e));
-      if (!STATIC_TOKEN) throw e;
+    if (Date.now() >= tokenRetryAfter || !STATIC_TOKEN) {
+      try {
+        return await fetchClientCredentialsToken();
+      } catch (e) {
+        console.error("shopify-lookup token error:", String(e));
+        tokenRetryAfter = Date.now() + 5 * 60_000;
+        if (!STATIC_TOKEN) throw e;
+      }
     }
   }
   return STATIC_TOKEN;
