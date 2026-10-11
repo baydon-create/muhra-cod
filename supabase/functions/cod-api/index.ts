@@ -141,6 +141,10 @@ async function handleShopify(role: Role, payload: any) {
     headers: { "X-Shopify-Access-Token": SHOPIFY_TOKEN, "Content-Type": "application/json" },
     body: check.body ? JSON.stringify(check.body) : null,
   });
+  // Don't pass Shopify's 401 through: the dashboard reads 401 as "wrong PIN".
+  if (res.status === 401) {
+    return json({ error: "Shopify rejected the access token — check the SHOPIFY_ADMIN_TOKEN secret" }, 502);
+  }
   return new Response(await res.text(), {
     status: res.status,
     headers: { ...CORS, "Content-Type": "application/json" },
