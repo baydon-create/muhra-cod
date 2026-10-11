@@ -101,6 +101,9 @@ async function isLockedOut(ip: string) {
 
 async function recordFailure(ip: string) {
   await db("cod_auth_failures", { method: "POST", body: JSON.stringify({ ip }) });
+  // Keep the table small: entries older than a day no longer matter.
+  const cutoff = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+  await db(`cod_auth_failures?at=lt.${encodeURIComponent(cutoff)}`, { method: "DELETE" });
 }
 
 // ── Shopify access token ─────────────────────────────────────────────────────
@@ -175,7 +178,7 @@ function checkShopifyCall(role: Role, path: string, method: string, body: any): 
   if (role !== "operator") return { ok: false };
   if (path.includes("?")) return { ok: false };
 
-  const m = rawPath.match(/^orders\/(\d+)(?:\/(transactions|cancel|close|refunds|refunds\/calculate))?\.json$/);
+  const m = rawPath.match(/^orders\/(\d+)(?:\/(cancel|close|refunds|refunds\/calculate))?\.json$/);
   if (!m) return { ok: false };
   const [, orderId, sub] = m;
 
@@ -190,9 +193,12 @@ function checkShopifyCall(role: Role, path: string, method: string, body: any): 
     const refund = body?.refund ?? {};
     return { ok: true, body: { refund: { ...refund, transactions: [] } } };
   }
-  if (method === "POST" && (sub === "transactions" || sub === "cancel" || sub === "close" || sub === "refunds/calculate")) {
-    return { ok: true, body };
+  if (method === "POST" && sub === "cancel") {
+    // Cancel without any refund options (Shopify's cancel can refund money otherwise).
+    return { ok: true, body: { reason: String(body?.reason ?? "customer"), email: false } };
   }
+  if (method === "POST" && sub === "close") return { ok: true, body: {} };
+  if (method === "POST" && sub === "refunds/calculate") return { ok: true, body };
   return { ok: false };
 }
 
